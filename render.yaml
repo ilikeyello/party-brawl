@@ -1,0 +1,10 @@
+# One-click deploy on Render (render.com): New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: party-brawl
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health

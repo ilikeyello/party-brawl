@@ -1,0 +1,16 @@
+{
+  "name": "party-brawl-server",
+  "version": "1.0.0",
+  "description": "Relay + matchmaking server for Party Brawl, also serves the web build",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_client.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
