@@ -14,7 +14,7 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
-const BUILD := "1.5 (cooler)"
+const BUILD := "1.6 (easy read)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
 const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
@@ -28,24 +28,42 @@ const COLORS := [Color("#FF4D6D"), Color("#00F5D4"), Color("#FEE440"), Color("#9
 const GAME_INFO := {
 	"bumper_sumo": {
 		"title": "BUMPER SUMO",
-		"rules": "AIM. LOCK IN. LAUNCH!",
-		"help": "Each turn, aim where you want to slide and LOCK IN. Everyone launches at once on slippery ice - bump rivals off, but if they dodge you might slide off yourself! The ring shrinks every turn.",
-		"pc": "MOUSE: point where to slide (further = more power)   CLICK / SPACE: lock in   A/D + W/S: aim with keys",
-		"touch": "DRAG ANYWHERE the way you want to slide (longer drag = harder). KEEP HOLDING and tap LOCK IN with your other thumb",
+		"rules": "Knock everyone off the ice!",
+		"steps": [
+			"Aim the way you want to slide",
+			"LOCK IN before the timer runs out",
+			"Everyone launches at the same time",
+			"Bump rivals into the lava",
+			"The ring shrinks every turn",
+		],
+		"pc": ["Mouse: point the way to slide", "Further away = harder", "Click or Space: lock in", "Keys: A/D turn, W/S power"],
+		"touch": ["Drag the way you want to slide", "Longer drag = harder", "Keep holding, tap LOCK IN", "Let go = arrow resets"],
 	},
 	"bomb_tag": {
 		"title": "BOMB TAG",
-		"rules": "PASS THE BOMB BEFORE IT BLOWS!",
-		"help": "Touch a rival to pass the bomb - no tag-backs! Holder runs faster. Use the side tunnels to warp across! Power-ups: FREEZE, TIME (+3s for holder, -2s for others), SPEED, SHIELD.",
-		"pc": "WASD / ARROWS: move   SPACE / SHIFT / CLICK: dash",
-		"touch": "JOYSTICK: move   DASH button",
+		"rules": "Pass the bomb before it blows!",
+		"steps": [
+			"Touch someone to pass the bomb",
+			"No tag-backs for 3 seconds",
+			"The bomb holder runs faster",
+			"Side tunnels warp you across",
+			"Power-ups: Freeze, Time, Speed, Shield",
+		],
+		"pc": ["WASD / Arrows: move", "Space, Shift or Click: dash"],
+		"touch": ["Left thumb: move (anywhere)", "Right button: dash"],
 	},
 	"tile_painter": {
 		"title": "TILE PAINTER",
-		"rules": "PAINT THE MOST TILES!",
-		"help": "Run over tiles to paint them. Dash to splash paint and stun rivals. Power-ups: PAINT BOMB, ROLLER, FREEZE, SWAP (trade colors with the leader!). Watch out for the ERASER bot - and the last 10 seconds are a FRENZY!",
-		"pc": "WASD / ARROWS: move   SPACE / SHIFT / CLICK: dash + paint splash",
-		"touch": "JOYSTICK: move   DASH button",
+		"rules": "Paint the most tiles!",
+		"steps": [
+			"Run over tiles to paint them",
+			"Dash to splash paint + stun rivals",
+			"Power-ups: Paint Bomb, Roller, Freeze, Swap",
+			"Dodge the Eraser bot",
+			"Last 10 seconds = FRENZY!",
+		],
+		"pc": ["WASD / Arrows: move", "Space, Shift or Click: dash"],
+		"touch": ["Left thumb: move (anywhere)", "Right button: dash"],
 	},
 }
 
@@ -85,6 +103,11 @@ var touch_mode: bool = false
 ## arena still fills the screen the same way.
 var ui_scale: float = 1.0
 signal ui_scale_changed
+## Screen edges covered by the notch / Dynamic Island / rounded corners, in game units
+## (left, top, right, bottom). Menus and the HUD stay inside these.
+var safe_insets: Vector4 = Vector4.ZERO
+signal safe_insets_changed
+var _safe_timer: float = 0.0
 var _fullscreen_asked := false
 
 
@@ -99,6 +122,46 @@ func _ready() -> void:
 	get_window().size_changed.connect(_update_ui_scale)
 	touch_mode_changed.connect(_update_ui_scale)
 	_update_ui_scale.call_deferred()
+
+
+func _update_safe_insets() -> void:
+	var ins := Vector4.ZERO
+	if OS.has_feature("web"):
+		var r = JavaScriptBridge.eval("""
+			(function(){
+				var d = document.getElementById('__pb_safe');
+				if (!d) {
+					d = document.createElement('div');
+					d.id = '__pb_safe';
+					d.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;' +
+						'padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);' +
+						'padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);';
+					document.body.appendChild(d);
+				}
+				var s = getComputedStyle(d);
+				return [parseFloat(s.paddingLeft)||0, parseFloat(s.paddingTop)||0, parseFloat(s.paddingRight)||0,
+					parseFloat(s.paddingBottom)||0, window.innerWidth||1].join(',');
+			})()
+		""", true)
+		if typeof(r) == TYPE_STRING:
+			var parts := str(r).split(",")
+			if parts.size() == 5:
+				# CSS pixels -> game units
+				var vp_w: float = get_viewport().get_visible_rect().size.x
+				var k: float = vp_w / maxf(float(parts[4]), 1.0)
+				ins = Vector4(float(parts[0]) * k, float(parts[1]) * k, float(parts[2]) * k, float(parts[3]) * k)
+	elif OS.has_feature("mobile"):
+		var full := Rect2(Vector2.ZERO, Vector2(DisplayServer.screen_get_size()))
+		var safe := Rect2(DisplayServer.get_display_safe_area())
+		var vp := get_viewport().get_visible_rect().size
+		var k2: float = vp.x / maxf(full.size.x, 1.0)
+		ins = Vector4(safe.position.x * k2, safe.position.y * k2, (full.end.x - safe.end.x) * k2, (full.end.y - safe.end.y) * k2)
+	if touch_mode:
+		# A little breathing room from the screen edge on phones, even without a notch.
+		ins = Vector4(maxf(ins.x, 14.0), maxf(ins.y, 6.0), maxf(ins.z, 14.0), maxf(ins.w, 6.0))
+	if not ins.is_equal_approx(safe_insets):
+		safe_insets = ins
+		safe_insets_changed.emit()
 
 
 func _update_ui_scale() -> void:
@@ -124,6 +187,7 @@ func _update_ui_scale() -> void:
 		ui_scale = target
 		get_window().content_scale_factor = ui_scale
 		ui_scale_changed.emit()
+	_update_safe_insets()
 
 
 ## Web on phones: go fullscreen on the first tap (Android). iPhones can't; they get a tip instead.
@@ -208,6 +272,11 @@ func start_local_server(port: int = LOCAL_TEST_PORT) -> bool:
 
 
 func _process(delta: float) -> void:
+	# Re-check the safe area now and then (rotation, entering full screen...).
+	_safe_timer -= delta
+	if _safe_timer <= 0.0:
+		_safe_timer = 1.0
+		_update_safe_insets()
 	if _connect_timer >= 0.0:
 		_connect_timer -= delta
 		if _connect_timer < 0.0 and relay != null and relay.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:

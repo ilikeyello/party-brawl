@@ -310,6 +310,7 @@ func _build_lobby() -> void:
 		lobby.add_child(fullscreen_btn)
 		fullscreen_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 		fullscreen_btn.position = Vector2(-150, 10)
+		GameManager.safe_insets_changed.connect(func(): fullscreen_btn.position = Vector2(-150.0 - GameManager.safe_insets.z, 10.0 + GameManager.safe_insets.y))
 		fullscreen_btn.size = Vector2(140, 40)
 
 	var col := VBoxContainer.new()
@@ -853,7 +854,7 @@ func _show_intro(index: int, game_id: String) -> void:
 	_full_rect(root)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.03, 0.02, 0.1, 0.84)
+	dim.color = Color(0.03, 0.02, 0.1, 0.92)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(dim)
 	_full_rect(dim)
@@ -864,22 +865,22 @@ func _show_intro(index: int, game_id: String) -> void:
 	_full_rect(center)
 
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
+	v.add_theme_constant_override("separation", 8)
 	center.add_child(v)
-	v.add_child(UI.make_label(_round_header(index), 30, Color("#00F5D4"), 8, HORIZONTAL_ALIGNMENT_CENTER))
-	var title := UI.make_label(str(info.get("title", game_id)), 86, Color("#FEE440"), 18, HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(UI.make_label(_round_header(index), 24, Color("#00F5D4"), 7, HORIZONTAL_ALIGNMENT_CENTER))
+	var title := UI.make_label(str(info.get("title", game_id)), 72, Color("#FEE440"), 16, HORIZONTAL_ALIGNMENT_CENTER)
 	title.label_settings.shadow_color = Color("#FF4D6D")
-	title.label_settings.shadow_offset = Vector2(0, 9)
+	title.label_settings.shadow_offset = Vector2(0, 8)
 	v.add_child(title)
-	v.add_child(UI.make_label(str(info.get("rules", "")), 32, Color.WHITE, 8, HORIZONTAL_ALIGNMENT_CENTER))
-	var help := UI.make_label(str(info.get("help", "")), 20, Color("#c8c3ff"), 5, HORIZONTAL_ALIGNMENT_CENTER)
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	help.custom_minimum_size = Vector2(760, 0)
-	v.add_child(help)
-	var ctl := UI.make_label(str(info.get("touch" if GameManager.touch_mode else "pc", "")), 17, Color("#FEE440"), 4, HORIZONTAL_ALIGNMENT_CENTER)
-	ctl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ctl.custom_minimum_size = Vector2(900, 0)
-	v.add_child(ctl)
+	v.add_child(UI.make_label(str(info.get("rules", "")).to_upper(), 30, Color.WHITE, 8, HORIZONTAL_ALIGNMENT_CENTER))
+	# Two clear panels side by side: how to play + controls
+	var cols := HBoxContainer.new()
+	cols.alignment = BoxContainer.ALIGNMENT_CENTER
+	cols.add_theme_constant_override("separation", 16)
+	v.add_child(cols)
+	cols.add_child(_bullet_panel("HOW TO PLAY", info.get("steps", []), Color("#00F5D4"), 560))
+	var ctl_lines: Array = info.get("touch" if GameManager.touch_mode else "pc", [])
+	cols.add_child(_bullet_panel("CONTROLS", ctl_lines, Color("#FEE440"), 400))
 	# Who's ready
 	_intro_chips = HBoxContainer.new()
 	_intro_chips.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -887,14 +888,14 @@ func _show_intro(index: int, game_id: String) -> void:
 	v.add_child(_intro_chips)
 	# READY button / status / big countdown
 	_intro_ready_btn = UI.make_button("READY!", Color("#2ECC71"), 34)
-	_intro_ready_btn.custom_minimum_size = Vector2(300, 74)
+	_intro_ready_btn.custom_minimum_size = Vector2(320, 70)
 	_intro_ready_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_intro_ready_btn.pressed.connect(_on_intro_ready)
 	v.add_child(_intro_ready_btn)
 	_intro_status = UI.make_label("", 20, Color("#c8c3ff"), 5, HORIZONTAL_ALIGNMENT_CENTER)
 	v.add_child(_intro_status)
-	_intro_count = UI.make_label("", 100, Color("#FF4D6D"), 18, HORIZONTAL_ALIGNMENT_CENTER)
-	_intro_count.custom_minimum_size = Vector2(0, 120)
+	_intro_count = UI.make_label("", 84, Color("#FF4D6D"), 18, HORIZONTAL_ALIGNMENT_CENTER)
+	_intro_count.custom_minimum_size = Vector2(0, 96)
 	_intro_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_intro_count.visible = false
 	v.add_child(_intro_count)
@@ -917,6 +918,35 @@ var _intro_done := false
 var _intro_last_num := -1
 var _i_pressed_ready := false
 var _chip_sig := ""
+
+
+## A solid panel with a heading and big, easy-to-read bullet lines.
+func _bullet_panel(heading: String, lines: Array, accent: Color, width: float) -> Control:
+	var panel := PanelContainer.new()
+	var sb := UI.box(Color(0.08, 0.07, 0.18, 0.97), 18, Color(accent, 0.6), 3)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.custom_minimum_size = Vector2(width, 0)
+	panel.size_flags_vertical = Control.SIZE_FILL
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	panel.add_child(box)
+	box.add_child(UI.make_label(heading, 20, accent, 5))
+	for line in lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var dot := UI.make_label("*", 22, accent, 4)
+		dot.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		row.add_child(dot)
+		var l := UI.make_label(str(line), 23, Color.WHITE, 5)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(width - 70.0, 0)
+		row.add_child(l)
+		box.add_child(row)
+	return panel
 
 
 func _on_intro_ready() -> void:

@@ -22,9 +22,11 @@ func _fit() -> void:
 		var need := child.get_combined_minimum_size()
 		if need.x <= 0.0 or need.y <= 0.0:
 			continue
-		var avail := size - Vector2(margin, margin) * 2.0
-		var s: float = minf(1.0, minf(avail.x / need.x, avail.y / need.y))
+		# Stay clear of the notch / Dynamic Island / rounded corners.
+		var ins: Vector4 = GameManager.safe_insets
+		var area := Rect2(Vector2(ins.x, ins.y), size - Vector2(ins.x + ins.z, ins.y + ins.w)).grow(-margin)
+		var s: float = minf(1.0, minf(area.size.x / need.x, area.size.y / need.y))
 		s = maxf(s, 0.2)
 		child.size = need
 		child.scale = Vector2(s, s)
-		child.position = ((size - need * s) * 0.5).floor()
+		child.position = (area.position + (area.size - need * s) * 0.5).floor()

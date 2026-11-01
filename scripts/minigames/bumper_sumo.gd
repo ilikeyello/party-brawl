@@ -548,7 +548,7 @@ func client_process(delta: float) -> void:
 			_local_aim_power = 0.0
 			_aim_touched = false
 			hud.show_center("TURN %d - AIM!" % turn, Color("#00F5D4"), 0.6)
-			hud.setup(game_title, "TURN %d: AIM + PUSH FOR POWER, THEN LOCK IN" % turn)
+			hud.setup(game_title, "TURN %d: AIM, THEN LOCK IN" % turn)
 		elif phase == "reveal":
 			hud.show_center("LAUNCH!", Color("#FEE440"), 0.4)
 			hud.setup(game_title, "TURN %d: WATCH OUT!" % turn)

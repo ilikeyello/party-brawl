@@ -119,11 +119,14 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	var s := _vp_size()
+	var ins: Vector4 = GameManager.safe_insets
+	if top_left != null:
+		top_left.position = Vector2(12.0 + ins.x, 10.0 + ins.y)
 	if timer_panel != null:
-		timer_panel.position = Vector2((s.x - timer_panel.size.x) * 0.5, 8)
+		timer_panel.position = Vector2((s.x - timer_panel.size.x) * 0.5, 8.0 + ins.y)
 		timer_label.pivot_offset = timer_label.size * 0.5
 	if badges_box != null:
-		badges_box.position = Vector2(s.x - badges_box.size.x - 12, 10)
+		badges_box.position = Vector2(s.x - badges_box.size.x - 12.0 - ins.z, 10.0 + ins.y)
 	pad.queue_redraw()
 
 
@@ -193,7 +196,7 @@ func show_center(text: String, col: Color = Color.WHITE, dur: float = 1.2) -> vo
 func _draw_pc_hud() -> void:
 	var s := _vp_size()
 	var font: Font = UI.title_font()
-	var c := Vector2(s.x - 70.0, s.y - 62.0)
+	var c := Vector2(s.x - 70.0 - GameManager.safe_insets.z, s.y - 62.0 - GameManager.safe_insets.w)
 	var r := 30.0
 	var btn_ready := cooldown_ratio <= 0.0
 	var col := action_color if btn_ready else Color("#8c6d4a")
@@ -346,12 +349,12 @@ func joy_center() -> Vector2:
 	if _joy_touch != -1:
 		return _joy_origin
 	var s := _vp_size()
-	return Vector2(150.0, s.y - 140.0)
+	return Vector2(150.0 + GameManager.safe_insets.x, s.y - 140.0 - GameManager.safe_insets.w)
 
 
 func btn_center() -> Vector2:
 	var s := _vp_size()
-	return Vector2(s.x - 150.0, s.y - 140.0)
+	return Vector2(s.x - 150.0 - GameManager.safe_insets.z, s.y - 140.0 - GameManager.safe_insets.w)
 
 
 # ---------------------------------------------------------------- drawing
@@ -428,5 +431,5 @@ func _draw_sling() -> void:
 	else:
 		var s := _vp_size()
 		var t := "DRAG TO AIM - KEEP HOLDING + TAP LOCK IN"
-		pad.draw_string_outline(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, Color(0, 0, 0, 0.7))
-		pad.draw_string(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.8))
+		pad.draw_string_outline(font, Vector2(20.0 + GameManager.safe_insets.x, s.y - 40.0 - GameManager.safe_insets.w), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, Color(0, 0, 0, 0.7))
+		pad.draw_string(font, Vector2(20.0 + GameManager.safe_insets.x, s.y - 40.0 - GameManager.safe_insets.w), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.8))
