@@ -57,6 +57,7 @@ var _seen_hits: int = 0
 var _last_hit_pos: Vector2 = Vector2.ZERO
 var _final_placements: Array = []
 var _act_hold: float = 0.0
+var _perf: Dictionary = {}
 var _elim_frame: Dictionary = {}       # id -> physics frame they were eliminated on
 var events: Array = []                 # [n, pos, text, color] floating texts (synced)
 var _ev_n: int = 0
@@ -157,8 +158,14 @@ func _server_tick(delta: float) -> void:
 	elif state == "running":
 		time_left = maxf(time_left - delta, 0.0)
 		elapsed += delta
+		var t0 := Time.get_ticks_usec()
 		simulate_players(delta)
+		var t1 := Time.get_ticks_usec()
 		game_step(delta)
+		var t2 := Time.get_ticks_usec()
+		_perf["sim"] = float(_perf.get("sim", 0.0)) + float(t1 - t0)
+		_perf["step"] = float(_perf.get("step", 0.0)) + float(t2 - t1)
+		_perf["ticks"] = int(_perf.get("ticks", 0)) + 1
 		if not _ended and should_end():
 			_finish()
 
@@ -196,7 +203,14 @@ func _process(delta: float) -> void:
 	if me != null:
 		hud.set_cooldown(cooldown_ratio_for(me))
 	_check_events()
+	var tc := Time.get_ticks_usec()
 	client_process(delta)
+	_perf["client"] = float(_perf.get("client", 0.0)) + float(Time.get_ticks_usec() - tc)
+	_perf["frames"] = int(_perf.get("frames", 0)) + 1
+	_perf["proc_ms"] = float(_perf.get("proc_ms", 0.0)) + Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	_perf["phys_ms"] = float(_perf.get("phys_ms", 0.0)) + Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	_perf["draws"] = float(_perf.get("draws", 0.0)) + Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+	_perf["objs"] = float(_perf.get("objs", 0.0)) + Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
 
 
 func _check_events() -> void:
@@ -330,7 +344,19 @@ func nearest_alive_other(p):
 	return best
 
 
+func _print_perf() -> void:
+	var fr: float = maxf(float(_perf.get("frames", 1)), 1.0)
+	var tk: float = maxf(float(_perf.get("ticks", 1)), 1.0)
+	print("[PERF] %s: frames=%d  process=%.2fms  physics=%.2fms  | sim(players+bots)=%.3fms/tick  game_step=%.3fms/tick  client_draw_logic=%.3fms/frame  | draw_calls=%.0f  objects=%.0f  nodes=%d" % [
+		game_id, int(fr), float(_perf.get("proc_ms", 0.0)) / fr, float(_perf.get("phys_ms", 0.0)) / fr,
+		float(_perf.get("sim", 0.0)) / tk / 1000.0, float(_perf.get("step", 0.0)) / tk / 1000.0,
+		float(_perf.get("client", 0.0)) / fr / 1000.0, float(_perf.get("draws", 0.0)) / fr, float(_perf.get("objs", 0.0)) / fr,
+		get_tree().get_node_count()])
+
+
 func _finish() -> void:
+	if GameManager.autotest:
+		_print_perf()
 	_ended = true
 	state = "done"
 	on_game_end()

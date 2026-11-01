@@ -115,6 +115,7 @@ func _handle_command_line() -> void:
 
 var _shot_n: int = 0
 var _shot_prefix: String = "shot_"
+var _auto_speed: float = 2.0
 
 
 func _setup_shots(interval: float) -> void:
@@ -150,6 +151,8 @@ func _start_autotest() -> void:
 					r["games"] = Array(kv[1].split(","))
 				"net":
 					net = kv[1]
+				"speed":
+					_auto_speed = float(kv[1])
 	GameManager.set_rules(r)
 	if net == "web":
 		# Serve the web build + run a relay, then host a quick match and wait for a browser player.
@@ -177,7 +180,7 @@ func _start_autotest() -> void:
 		var pid := OS.create_process(exe, ["--path", proj, "--", "--netclient"])
 		print("[AUTOTEST] launched second game copy, pid ", pid)
 		return
-	Engine.time_scale = 2.0
+	Engine.time_scale = _auto_speed
 	print("[AUTOTEST] starting full bot match: ", GameManager.rules_summary())
 	var missing: Array = []
 	for n in Sfx.SFX:
@@ -276,6 +279,8 @@ func _process(delta: float) -> void:
 	# Save battery / heat: menus don't need 60 fps on phones, games never need more than 60.
 	var want_fps: int = 60
 	if current_game == null and GameManager.touch_mode:
+		want_fps = 30
+	elif Sfx.battery_saver:
 		want_fps = 30
 	if Engine.max_fps != want_fps:
 		Engine.max_fps = want_fps
@@ -492,6 +497,9 @@ func _build_lobby() -> void:
 	sound_btn = UI.make_button("", Color("#9B5DE5"), 15)
 	sound_btn.pressed.connect(func(): Sfx.set_sfx_on(not Sfx.sfx_on))
 	audio_row.add_child(sound_btn)
+	saver_btn = UI.make_button("", Color("#2ECC71"), 15)
+	saver_btn.pressed.connect(func(): Sfx.set_battery_saver(not Sfx.battery_saver))
+	audio_row.add_child(saver_btn)
 	Sfx.settings_changed.connect(_update_audio_buttons)
 	GameManager.safe_insets_changed.connect(_update_audio_buttons)
 	_update_audio_buttons()
@@ -559,6 +567,7 @@ func _open_native_prompt(edit: LineEdit, question: String) -> void:
 var audio_row: HBoxContainer
 var music_btn: Button
 var sound_btn: Button
+var saver_btn: Button
 var _last_humans := 0
 
 
@@ -569,6 +578,8 @@ func _update_audio_buttons() -> void:
 	sound_btn.text = "SOUND: ON" if Sfx.sfx_on else "SOUND: OFF"
 	music_btn.modulate.a = 1.0 if Sfx.music_on else 0.55
 	sound_btn.modulate.a = 1.0 if Sfx.sfx_on else 0.55
+	saver_btn.text = "BATTERY SAVER: ON" if Sfx.battery_saver else "BATTERY SAVER: OFF"
+	saver_btn.modulate.a = 1.0 if Sfx.battery_saver else 0.55
 	audio_row.position = Vector2(10.0 + GameManager.safe_insets.x, 10.0 + GameManager.safe_insets.y)
 
 

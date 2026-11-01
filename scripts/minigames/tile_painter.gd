@@ -62,6 +62,7 @@ var _seen_bombs: Dictionary = {}
 var _board_dirty := true
 var _last_rollers := 0
 var board_static: Node2D
+var _board_mesh: ArrayMesh
 
 
 func _init() -> void:
@@ -548,13 +549,20 @@ func _slot_color(s: int) -> Color:
 func _draw_backdrop() -> void:
 	var b := board_static
 	b.draw_rect(Rect2(-1400, -1000, 4080, 2720), Color("#0e1020"))
-	for gy in range(-2, 18):
-		for gx in range(-4, 30):
-			b.draw_circle(Vector2(gx * 48.0 + 8.0, gy * 48.0 + 8.0), 1.5, Color(1, 1, 1, 0.05))
 	var rim := _board_rect().grow(14.0)
 	b.draw_rect(Rect2(rim.position + Vector2(16, BOARD_DEPTH + 18), rim.size), Color(0, 0, 0, 0.5))
 	b.draw_rect(Rect2(rim.position + Vector2(0, BOARD_DEPTH), rim.size), Color("#161829"))
 	b.draw_rect(Rect2(rim.position.x, rim.end.y, rim.size.x, BOARD_DEPTH), Color("#23264a"))
+
+
+func _quad(verts: PackedVector2Array, cols: PackedColorArray, r: Rect2, c: Color) -> void:
+	var a := r.position
+	var b := Vector2(r.end.x, r.position.y)
+	var d := Vector2(r.position.x, r.end.y)
+	var e := r.end
+	verts.append_array(PackedVector2Array([a, b, e, a, e, d]))
+	for k in 6:
+		cols.append(c)
 
 
 func _draw_board() -> void:
@@ -567,6 +575,10 @@ func _draw_board() -> void:
 	b.draw_rect(rim, rim_col)
 	b.draw_rect(Rect2(rim.position, Vector2(rim.size.x, 3)), Color("#5c6090"))
 	b.draw_rect(rect.grow(2.0), Color("#111325"))
+	# All 160 tiles go into ONE mesh = one draw call (was ~800 separate rectangles,
+	# which is a lot of work for a phone every frame).
+	var verts := PackedVector2Array()
+	var cols := PackedColorArray()
 	for y in ROWS:
 		for x in COLS:
 			var i: int = y * COLS + x
@@ -578,11 +590,20 @@ func _draw_board() -> void:
 				r = r.grow(pop * 3.0)
 				r.position.y -= pop * 4.0
 				base = base.lightened(pop * 0.45)
-			b.draw_rect(Rect2(r.position + Vector2(0, 5), r.size), base.darkened(0.5))
-			b.draw_rect(r, base)
-			b.draw_rect(Rect2(r.position, Vector2(r.size.x, 4)), base.lightened(0.2))
+			_quad(verts, cols, Rect2(r.position + Vector2(0, 5), r.size), base.darkened(0.5))
+			_quad(verts, cols, r, base)
+			_quad(verts, cols, Rect2(r.position, Vector2(r.size.x, 4)), base.lightened(0.2))
 			if v != 0:
-				b.draw_rect(Rect2(r.position + Vector2(6, 8), Vector2(r.size.x * 0.35, 4)), Color(1, 1, 1, 0.22))
+				_quad(verts, cols, Rect2(r.position + Vector2(6, 8), Vector2(r.size.x * 0.35, 4)), base.lightened(0.35))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_COLOR] = cols
+	if _board_mesh == null:
+		_board_mesh = ArrayMesh.new()
+	_board_mesh.clear_surfaces()
+	_board_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	b.draw_mesh(_board_mesh, null)
 	# Roller brushes under players who have one
 	for id in roller_ids:
 		var p = players.get(id)

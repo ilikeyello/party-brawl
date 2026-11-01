@@ -20,6 +20,8 @@ const SETTINGS_PATH := "user://audio_settings.cfg"
 
 var music_on := true
 var sfx_on := true
+## Battery saver: games run at 30 fps (phones default to ON). Stored with the audio settings.
+var battery_saver := false
 var _streams: Dictionary = {}
 var _voices: Array = []
 var _next_voice := 0
@@ -128,6 +130,12 @@ func set_music_on(on: bool) -> void:
 	settings_changed.emit()
 
 
+func set_battery_saver(on: bool) -> void:
+	battery_saver = on
+	_save_settings()
+	settings_changed.emit()
+
+
 func set_sfx_on(on: bool) -> void:
 	sfx_on = on
 	_save_settings()
@@ -139,10 +147,14 @@ func _load_settings() -> void:
 	if cf.load(SETTINGS_PATH) == OK:
 		music_on = bool(cf.get_value("audio", "music", true))
 		sfx_on = bool(cf.get_value("audio", "sfx", true))
+		battery_saver = bool(cf.get_value("video", "battery_saver", GameManager.is_touch_device()))
+	else:
+		battery_saver = GameManager.is_touch_device()
 
 
 func _save_settings() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("audio", "music", music_on)
 	cf.set_value("audio", "sfx", sfx_on)
+	cf.set_value("video", "battery_saver", battery_saver)
 	cf.save(SETTINGS_PATH)

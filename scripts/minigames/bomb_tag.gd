@@ -65,6 +65,7 @@ var _last_holder_seen: int = 0
 var open_cells: PackedByteArray = PackedByteArray()
 var dead_ends: Array = []
 var floor_node: Node2D
+var _bfs_cache: Dictionary = {}
 var floor_fx: Node2D
 var pu_node: Node2D
 var pu_labels: Node2D
@@ -118,8 +119,21 @@ func _open_dir(c: Vector2i, d: Vector2i) -> bool:
 	return _is_open(c + d)
 
 
-## Breadth-first distances (in cells) from `start` to every open cell. -1 = unreachable.
+## Distances (in cells) from `start` to every open cell. The maze never changes, so each
+## result is worked out once and reused (this used to run several times per bot per frame).
 func bfs(start: Vector2i) -> PackedInt32Array:
+	if not _is_open(start):
+		start = _nearest_open(start)
+	var key: int = start.y * COLS + start.x
+	var cached = _bfs_cache.get(key)
+	if cached != null:
+		return cached
+	var d := _bfs_compute(start)
+	_bfs_cache[key] = d
+	return d
+
+
+func _bfs_compute(start: Vector2i) -> PackedInt32Array:
 	var dist := PackedInt32Array()
 	dist.resize(COLS * ROWS)
 	dist.fill(-1)
