@@ -64,6 +64,7 @@ var _last_holder_seen: int = 0
 var open_cells: PackedByteArray = PackedByteArray()
 var dead_ends: Array = []
 var floor_node: Node2D
+var floor_fx: Node2D
 var pu_node: Node2D
 var pu_labels: Node2D
 var _t: float = 0.0
@@ -168,6 +169,11 @@ func build_arena() -> void:
 	floor_node.name = "ArenaFloor"
 	floor_layer.add_child(floor_node)
 	floor_node.draw.connect(_draw_floor)
+
+	floor_fx = Node2D.new()
+	floor_fx.name = "FloorFX"
+	floor_layer.add_child(floor_fx)
+	floor_fx.draw.connect(_draw_floor_fx)
 
 	pu_node = Node2D.new()
 	pu_node.name = "PowerUps"
@@ -628,7 +634,7 @@ func client_process(delta: float) -> void:
 		hud.set_action("DASH!", Color("#FF4D6D"))
 	else:
 		hud.set_action("DASH", Color("#FF9F1C"))
-	floor_node.queue_redraw()
+	floor_fx.queue_redraw()
 	pu_node.queue_redraw()
 	pu_labels.queue_redraw()
 
@@ -645,12 +651,6 @@ func _draw_floor() -> void:
 			var r := Rect2(ARENA.position + Vector2(float(x) * CELL, float(y) * CELL), Vector2(CELL, CELL))
 			var c := Color("#272044") if (x + y) % 2 == 0 else Color("#2e2752")
 			f.draw_rect(r, c)
-	# Danger glow under the bomb holder
-	var holder = players.get(holder_id)
-	if holder != null and not holder.is_eliminated:
-		var pulse: float = 0.5 + 0.5 * sin(_t * (8.0 + (FUSE_TIME - minf(fuse, FUSE_TIME)) * 3.0))
-		var hp: Vector2 = holder.position
-		f.draw_colored_polygon(UI.ellipse_points(hp + Vector2(0, 4), 46 + pulse * 10.0, 20 + pulse * 4.0, 28), Color(1.0, 0.2, 0.15, 0.18 + pulse * 0.2))
 	# Block shadows on the floor
 	for y in ROWS:
 		for x in COLS:
@@ -666,17 +666,30 @@ func _draw_floor() -> void:
 		var tx: float = ARENA.position.x - TUNNEL_LEN if side < 0 else ARENA.end.x
 		# Tunnel floor with glowing chevrons
 		f.draw_rect(Rect2(tx, ty, TUNNEL_LEN, CELL), Color("#1b2550"))
-		var pulse: float = 0.5 + 0.5 * sin(_t * 5.0)
-		for k in 3:
-			var cx: float = tx + TUNNEL_LEN * (0.2 + 0.3 * float(k))
-			var cy: float = ty + CELL * 0.5
-			var dx: float = -10.0 if side < 0 else 10.0
-			f.draw_polyline(PackedVector2Array([Vector2(cx - dx, cy - 12), Vector2(cx + dx, cy), Vector2(cx - dx, cy + 12)]), Color(0.0, 0.96, 0.83, 0.3 + 0.5 * pulse * (float(k + 1) / 3.0)), 4.0, true)
 		UI.draw_block(f, Rect2(x0, ARENA.position.y, WALL_T, ty - ARENA.position.y), WALL_H, top_c, front_c)
 		UI.draw_block(f, Rect2(x0, ty + CELL, WALL_T, ARENA.end.y - ty - CELL), WALL_H, top_c, front_c)
 		UI.draw_block(f, Rect2(tx, ty - 20.0, TUNNEL_LEN, 20.0), WALL_H * 0.6, top_c, front_c)
 		UI.draw_block(f, Rect2(tx, ty + CELL, TUNNEL_LEN, 20.0), WALL_H * 0.6, top_c, front_c)
 	f.draw_line(Vector2(ARENA.position.x, ARENA.position.y - 1), Vector2(ARENA.end.x, ARENA.position.y - 1), Color(0.0, 0.96, 0.83, 0.5), 3.0)
+
+
+## Only the parts that move (drawn every frame; the floor above is drawn once).
+func _draw_floor_fx() -> void:
+	var f := floor_fx
+	var holder = players.get(holder_id)
+	if holder != null and not holder.is_eliminated:
+		var pulse: float = 0.5 + 0.5 * sin(_t * (8.0 + (FUSE_TIME - minf(fuse, FUSE_TIME)) * 3.0))
+		var hp: Vector2 = holder.position
+		f.draw_colored_polygon(UI.ellipse_points(hp + Vector2(0, 4), 46 + pulse * 10.0, 20 + pulse * 4.0, 28), Color(1.0, 0.2, 0.15, 0.18 + pulse * 0.2))
+	var ty: float = ARENA.position.y + float(WARP_ROW) * CELL
+	var p2: float = 0.5 + 0.5 * sin(_t * 5.0)
+	for side in [-1, 1]:
+		var tx: float = ARENA.position.x - TUNNEL_LEN if side < 0 else ARENA.end.x
+		for k in 3:
+			var cx: float = tx + TUNNEL_LEN * (0.2 + 0.3 * float(k))
+			var cy: float = ty + CELL * 0.5
+			var dx: float = -10.0 if side < 0 else 10.0
+			f.draw_polyline(PackedVector2Array([Vector2(cx - dx, cy - 12), Vector2(cx + dx, cy), Vector2(cx - dx, cy + 12)]), Color(0.0, 0.96, 0.83, 0.3 + 0.5 * p2 * (float(k + 1) / 3.0)), 4.0, true)
 
 
 func _draw_front_wall(n: Node2D) -> void:

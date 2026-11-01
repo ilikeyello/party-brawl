@@ -59,6 +59,9 @@ var _t: float = 0.0
 var _frenzy_shown: bool = false
 var _eraser_shown: bool = false
 var _seen_bombs: Dictionary = {}
+var _board_dirty := true
+var _last_rollers := 0
+var board_static: Node2D
 
 
 func _init() -> void:
@@ -76,6 +79,11 @@ func build_arena() -> void:
 	_prev_tiles = tiles.duplicate()
 	_pop.resize(COLS * ROWS)
 	_pop.fill(0.0)
+
+	board_static = Node2D.new()
+	board_static.name = "Backdrop"
+	floor_layer.add_child(board_static)
+	board_static.draw.connect(_draw_backdrop)
 
 	board = Node2D.new()
 	board.name = "Board"
@@ -419,13 +427,20 @@ func client_process(delta: float) -> void:
 	_t += delta
 	if GameManager.is_host():
 		roller_ids = rollers.keys()
+	var dirty := false
 	for i in tiles.size():
 		if tiles[i] != _prev_tiles[i]:
 			_pop[i] = 1.0
+			dirty = true
 		elif _pop[i] > 0.0:
 			_pop[i] = maxf(_pop[i] - delta * 3.5, 0.0)
-	_prev_tiles = tiles.duplicate()
-	_recount()
+			dirty = true
+	if dirty:
+		_prev_tiles = tiles.duplicate()
+		_recount()
+	# Only redraw the board when something on it changed (saves a lot of battery on phones).
+	_board_dirty = dirty or not roller_ids.is_empty() or frenzy or roller_ids.size() != _last_rollers
+	_last_rollers = roller_ids.size()
 	# Banners
 	if frenzy and not _frenzy_shown and state == "running":
 		_frenzy_shown = true
@@ -449,7 +464,8 @@ func client_process(delta: float) -> void:
 	eraser_node.position = eraser_node.position.lerp(eraser_pos, clampf(delta * 18.0, 0.0, 1.0)) if eraser_node.position.distance_to(eraser_pos) < 80.0 else eraser_pos
 	if frenzy:
 		hud.set_action("DASH!", Color("#FF4D6D"))
-	board.queue_redraw()
+	if _board_dirty:
+		board.queue_redraw()
 	pu_node.queue_redraw()
 	pu_labels.queue_redraw()
 	eraser_node.queue_redraw()
@@ -527,17 +543,23 @@ func _slot_color(s: int) -> Color:
 	return GameManager.COLORS[clampi(s, 0, 4)]
 
 
-func _draw_board() -> void:
-	var b := board
+## Static background (drawn once).
+func _draw_backdrop() -> void:
+	var b := board_static
 	b.draw_rect(Rect2(-1400, -1000, 4080, 2720), Color("#0e1020"))
 	for gy in range(-2, 18):
 		for gx in range(-4, 30):
 			b.draw_circle(Vector2(gx * 48.0 + 8.0, gy * 48.0 + 8.0), 1.5, Color(1, 1, 1, 0.05))
-	var rect := _board_rect()
-	var rim := rect.grow(14.0)
+	var rim := _board_rect().grow(14.0)
 	b.draw_rect(Rect2(rim.position + Vector2(16, BOARD_DEPTH + 18), rim.size), Color(0, 0, 0, 0.5))
 	b.draw_rect(Rect2(rim.position + Vector2(0, BOARD_DEPTH), rim.size), Color("#161829"))
 	b.draw_rect(Rect2(rim.position.x, rim.end.y, rim.size.x, BOARD_DEPTH), Color("#23264a"))
+
+
+func _draw_board() -> void:
+	var b := board
+	var rect := _board_rect()
+	var rim := rect.grow(14.0)
 	var rim_col := Color("#3a3d5c")
 	if frenzy:
 		rim_col = Color("#3a3d5c").lerp(Color("#FF4D6D"), 0.4 + 0.3 * sin(_t * 10.0))

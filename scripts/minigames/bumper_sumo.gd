@@ -46,6 +46,10 @@ var locked_ids: Array = []
 var _local_aim_dir: Vector2 = Vector2.ZERO
 var _local_aim_power: float = 0.0
 var _aim_touched := false
+var _bg_acc := 0.0
+var _plat_acc := 0.0
+var _drawn_radius := -1.0
+var _aim_drawn := false
 var _mouse_active := false
 var _last_mouse := Vector2.INF
 var _seen_phase: String = ""
@@ -562,9 +566,21 @@ func client_process(delta: float) -> void:
 		hud.set_action("WAIT...", Color("#7a7a90"))
 	if state == "running" and phase != "aim":
 		hud.timer_label.text = "GO" if phase != "shrink" else "--"
-	bg.queue_redraw()
-	platform.queue_redraw()
-	aim_layer.queue_redraw()
+	# The lava drifts slowly: redraw it ~10x/s. The platform ~30x/s (faster while shrinking).
+	_bg_acc += delta
+	if _bg_acc >= 0.1:
+		_bg_acc = 0.0
+		bg.queue_redraw()
+	_plat_acc += delta
+	if _plat_acc >= 1.0 / 30.0 or absf(arena_radius - _drawn_radius) > 0.5:
+		_plat_acc = 0.0
+		_drawn_radius = arena_radius
+		platform.queue_redraw()
+	if state == "running" and (phase == "aim" or phase == "reveal"):
+		aim_layer.queue_redraw()
+	elif _aim_drawn:
+		aim_layer.queue_redraw()
+	_aim_drawn = state == "running" and (phase == "aim" or phase == "reveal")
 
 
 # ---------------------------------------------------------------- drawing (pseudo-3D)

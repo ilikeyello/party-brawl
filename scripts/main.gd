@@ -263,6 +263,12 @@ func _build_rotate_hint() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	_update_intro()
+	# Save battery / heat: menus don't need 60 fps on phones, games never need more than 60.
+	var want_fps: int = 60
+	if current_game == null and GameManager.touch_mode:
+		want_fps = 30
+	if Engine.max_fps != want_fps:
+		Engine.max_fps = want_fps
 	if rotate_hint != null:
 		var vs := get_viewport().get_visible_rect().size
 		rotate_hint.visible = GameManager.touch_mode and vs.y > vs.x * 1.15
