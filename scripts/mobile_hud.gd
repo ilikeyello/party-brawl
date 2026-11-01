@@ -9,7 +9,8 @@ const UI := preload("res://scripts/ui_kit.gd")
 const JOY_RADIUS := 75.0
 const KNOB_RADIUS := 32.0
 const BUTTON_SIZE := 110.0
-const DEADZONE := 0.15
+const DEADZONE := 0.12
+const FULL_AT := 0.6          # stick reaches full speed at 60% of the radius
 
 var joystick_vector: Vector2 = Vector2.ZERO
 var action_held: bool = false
@@ -23,6 +24,12 @@ var pc_key: String = "SPACE"
 var _joy_touch: int = -1
 var _btn_touch: int = -1
 var _knob: Vector2 = Vector2.ZERO
+var _joy_origin: Vector2 = Vector2.ZERO
+## Sumo: touches outside the joystick corner aim directly (touch where you want to slide).
+var free_aim: bool = false
+var free_active: bool = false
+var free_pos: Vector2 = Vector2.ZERO
+var _free_touch: int = -1
 var _latched: bool = false
 var _t: float = 0.0
 var _last_secs: int = -1
@@ -218,8 +225,13 @@ func flash(col: Color) -> void:
 
 func get_move_vector() -> Vector2:
 	if _joy_touch != -1:
-		var v := _knob / JOY_RADIUS
-		joystick_vector = v if v.length() > DEADZONE else Vector2.ZERO
+		var raw := _knob / JOY_RADIUS
+		var l := raw.length()
+		if l <= DEADZONE:
+			joystick_vector = Vector2.ZERO
+		else:
+			var mag: float = clampf((l - DEADZONE) / (FULL_AT - DEADZONE), 0.0, 1.0)
+			joystick_vector = raw / l * mag
 		return joystick_vector
 	var k := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
@@ -259,11 +271,19 @@ func _input(event: InputEvent) -> void:
 				_latched = true
 			elif _joy_touch == -1 and _in_joy_zone(st.position):
 				_joy_touch = st.index
+				_joy_origin = st.position      # floating stick: appears under the thumb
 				_set_knob(st.position)
+			elif free_aim and _free_touch == -1:
+				_free_touch = st.index
+				free_active = true
+				free_pos = st.position
 		else:
 			if st.index == _joy_touch:
 				_joy_touch = -1
 				_knob = Vector2.ZERO
+			if st.index == _free_touch:
+				_free_touch = -1
+				free_active = false
 			if st.index == _btn_touch:
 				_btn_touch = -1
 				action_held = false
@@ -271,6 +291,8 @@ func _input(event: InputEvent) -> void:
 		var sd := event as InputEventScreenDrag
 		if sd.index == _joy_touch:
 			_set_knob(sd.position)
+		elif sd.index == _free_touch:
+			free_pos = sd.position
 	elif event is InputEventKey:
 		var k := event as InputEventKey
 		if k.pressed and not k.echo and (k.physical_keycode == KEY_SPACE or k.physical_keycode == KEY_SHIFT or k.physical_keycode == KEY_ENTER):
@@ -287,12 +309,28 @@ func _input(event: InputEvent) -> void:
 
 
 func _set_knob(p: Vector2) -> void:
-	_knob = (p - joy_center()).limit_length(JOY_RADIUS)
+	var off := p - _joy_origin
+	# If the thumb slides past the edge, drag the stick along with it.
+	if off.length() > JOY_RADIUS:
+		_joy_origin = p - off.normalized() * JOY_RADIUS
+		off = p - _joy_origin
+	_knob = off
 
 
 func _in_joy_zone(p: Vector2) -> bool:
 	var s := _vp_size()
-	return p.distance_to(joy_center()) <= JOY_RADIUS * 1.9 or (p.x < s.x * 0.4 and p.y > s.y * 0.45)
+	if p.y < s.y * 0.16:
+		return false   # top bar
+	if free_aim:
+		return p.x < s.x * 0.3 and p.y > s.y * 0.5
+	return p.x < s.x * 0.5
+
+
+## Raw stick direction*distance (0..1) for aiming, no speed curve.
+func get_stick_raw() -> Vector2:
+	if _joy_touch == -1:
+		return Vector2.ZERO
+	return _knob / JOY_RADIUS
 
 
 func _vp_size() -> Vector2:
@@ -302,6 +340,8 @@ func _vp_size() -> Vector2:
 
 
 func joy_center() -> Vector2:
+	if _joy_touch != -1:
+		return _joy_origin
 	var s := _vp_size()
 	return Vector2(150.0, s.y - 140.0)
 

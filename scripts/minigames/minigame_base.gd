@@ -69,7 +69,8 @@ func _ready() -> void:
 	add_child(fx_layer)
 	camera = Camera2D.new()
 	camera.position = camera_center
-	camera.zoom = Vector2(camera_zoom, camera_zoom)
+	_apply_camera_zoom()
+	GameManager.ui_scale_changed.connect(_apply_camera_zoom)
 	add_child(camera)
 	camera.make_current()
 
@@ -380,6 +381,12 @@ func _badge_entries() -> Array:
 		var txt := "%s  %s  %s" % [nm, tally, stat_text(int(id))]
 		out.append({"id": id, "color": info["color"], "text": txt, "out": bool(p.is_eliminated)})
 	return out
+
+
+func _apply_camera_zoom() -> void:
+	if camera != null:
+		var z: float = camera_zoom / maxf(GameManager.ui_scale, 0.01)
+		camera.zoom = Vector2(z, z)
 
 
 func add_shake(amount: float) -> void:

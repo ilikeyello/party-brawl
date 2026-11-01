@@ -30,7 +30,7 @@ const GAME_INFO := {
 		"rules": "AIM. LOCK IN. LAUNCH!",
 		"help": "Each turn, aim where you want to slide and LOCK IN. Everyone launches at once on slippery ice - bump rivals off, but if they dodge you might slide off yourself! The ring shrinks every turn.",
 		"pc": "MOUSE: point where to slide (further = more power)   CLICK / SPACE: lock in   A/D + W/S: aim with keys",
-		"touch": "JOYSTICK: aim (push further = more power)   LOCK IN button",
+		"touch": "TOUCH THE ICE where you want to slide (or fine-tune with the joystick)   then tap LOCK IN",
 	},
 	"bomb_tag": {
 		"title": "BOMB TAG",
@@ -80,6 +80,11 @@ var _match_token: int = 0
 
 ## True when the player is using a touchscreen (shows the on-screen joystick + button).
 var touch_mode: bool = false
+## Bigger menus/HUD on small touch screens (1.0 on desktop). Cameras divide by this so the
+## arena still fills the screen the same way.
+var ui_scale: float = 1.0
+signal ui_scale_changed
+var _fullscreen_asked := false
 
 
 func _ready() -> void:
@@ -90,10 +95,66 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 	server_url = _default_server_url()
 	touch_mode = is_touch_device()
+	get_window().size_changed.connect(_update_ui_scale)
+	touch_mode_changed.connect(_update_ui_scale)
+	_update_ui_scale.call_deferred()
+
+
+func _update_ui_scale() -> void:
+	var target := 1.0
+	if touch_mode:
+		var win := Vector2(get_window().size)
+		var dpr: float = maxf(DisplayServer.screen_get_scale(), 1.0)
+		if OS.has_feature("web"):
+			var r = JavaScriptBridge.eval("window.devicePixelRatio || 1", true)
+			if typeof(r) == TYPE_FLOAT or typeof(r) == TYPE_INT:
+				dpr = maxf(float(r), 1.0)
+		var short_side: float = minf(win.x, win.y) / dpr   # in CSS / logical pixels
+		if short_side < 460.0:
+			target = 1.6
+		elif short_side < 620.0:
+			target = 1.35
+		elif short_side < 820.0:
+			target = 1.15
+	if absf(target - ui_scale) > 0.01:
+		ui_scale = target
+		get_window().content_scale_factor = ui_scale
+		ui_scale_changed.emit()
+
+
+## Web on phones: go fullscreen on the first tap (Android). iPhones can't; they get a tip instead.
+func _try_fullscreen() -> void:
+	if _fullscreen_asked or not OS.has_feature("web"):
+		return
+	_fullscreen_asked = true
+	JavaScriptBridge.eval("""
+		(function(){
+			var el = document.documentElement;
+			var req = el.requestFullscreen || el.webkitRequestFullscreen;
+			if (req) {
+				try {
+					var p = req.call(el, {navigationUI: 'hide'});
+					if (p && p.then) p.then(function(){ try { screen.orientation.lock('landscape'); } catch(e){} }).catch(function(){});
+				} catch(e) {}
+			}
+		})();
+	""", true)
+
+
+func is_ios_browser() -> bool:
+	if not OS.has_feature("web"):
+		return false
+	var standalone = JavaScriptBridge.eval("(window.navigator.standalone === true) || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches", true)
+	if standalone == true:
+		return false
+	var ios = JavaScriptBridge.eval("/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)", true)
+	return ios == true
 
 
 ## Switch between touch controls and keyboard/mouse based on what the player actually uses.
 func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch and event.pressed and is_touch_device():
+		_try_fullscreen()
 	var want := touch_mode
 	if event is InputEventScreenTouch or event is InputEventScreenDrag:
 		if event.device != InputEvent.DEVICE_ID_EMULATION:

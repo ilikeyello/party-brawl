@@ -27,6 +27,8 @@ const PHASES := ["aim", "reveal", "move", "shrink"]
 const BRACE_LEN := 0.12
 const KEY_TURN_SPEED := 2.4     # rad/s for A/D aiming
 const KEY_POWER_SPEED := 0.9    # power/s for W/S
+const STICK_TURN := 3.0         # rad/s max when aiming with the touch joystick
+const STICK_POWER := 0.7        # power/s max change with the touch joystick
 
 var arena_radius: float = START_RADIUS
 var next_radius: float = START_RADIUS - SHRINK_PER_TURN
@@ -422,11 +424,26 @@ func local_input(delta: float) -> Dictionary:
 		var to_c: Vector2 = CENTER - me.position
 		_local_aim_dir = to_c.normalized() if to_c.length() > 1.0 else Vector2.UP
 	if GameManager.touch_mode:
-		var mv: Vector2 = hud.get_move_vector()
-		if mv.length() > 0.2:
-			_local_aim_dir = mv.normalized()
-			_local_aim_power = clampf(mv.length(), MIN_POWER, 1.0)
+		hud.free_aim = true
+		if hud.free_active:
+			# Touch the ice where you want to end up (same as the mouse on PC).
+			var wpos: Vector2 = get_viewport().get_canvas_transform().affine_inverse() * hud.free_pos
+			var off: Vector2 = wpos - me.position
+			var dist: float = off.length()
+			if dist > 6.0:
+				_local_aim_dir = off.normalized()
+			_local_aim_power = 0.0 if dist < 34.0 else power_for_travel(dist)
 			_aim_touched = true
+		else:
+			# Joystick: gentle fine-tuning. Direction eases toward the stick, power changes slowly.
+			var raw: Vector2 = hud.get_stick_raw()
+			if raw.length() > 0.25:
+				var want: Vector2 = raw.normalized()
+				var ang: float = _local_aim_dir.angle_to(want)
+				_local_aim_dir = _local_aim_dir.rotated(clampf(ang, -STICK_TURN * delta, STICK_TURN * delta))
+				var want_pow: float = clampf((raw.length() - 0.25) / 0.7, 0.0, 1.0)
+				_local_aim_power = move_toward(_local_aim_power, want_pow, STICK_POWER * delta)
+				_aim_touched = true
 	else:
 		var mpos: Vector2 = get_global_mouse_position()
 		if _last_mouse != Vector2.INF and mpos.distance_to(_last_mouse) > 1.0:

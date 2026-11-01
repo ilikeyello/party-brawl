@@ -4,6 +4,7 @@ extends Node
 
 const UI := preload("res://scripts/ui_kit.gd")
 const Backdrop := preload("res://scripts/backdrop.gd")
+const FitBox := preload("res://scripts/fit_box.gd")
 const MINIGAMES := {
 	"bumper_sumo": preload("res://scenes/minigames/bumper_sumo.tscn"),
 	"bomb_tag": preload("res://scenes/minigames/bomb_tag.tscn"),
@@ -82,6 +83,8 @@ func _ready() -> void:
 
 	_build_rotate_hint()
 	show_lobby()
+	if GameManager.is_ios_browser():
+		_set_status("iPhone tip: tap Share, then \"Add to Home Screen\" to play full screen.")
 	_handle_command_line()
 
 
@@ -288,11 +291,11 @@ func _build_lobby() -> void:
 	lobby.add_child(bd)
 	bd.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var center := CenterContainer.new()
+	var center: Container = FitBox.new()
 	lobby.add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	if OS.has_feature("web") or GameManager.is_touch_device():
+	if (OS.has_feature("web") or GameManager.is_touch_device()) and not GameManager.is_ios_browser():
 		fullscreen_btn = UI.make_button("FULLSCREEN", Color("#3a86ff"), 15)
 		fullscreen_btn.pressed.connect(_toggle_fullscreen)
 		lobby.add_child(fullscreen_btn)
@@ -784,7 +787,7 @@ func _show_intro(index: int, game_id: String) -> void:
 	root.add_child(dim)
 	_full_rect(dim)
 
-	var center := CenterContainer.new()
+	var center: Container = FitBox.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(center)
 	_full_rect(center)
@@ -864,7 +867,7 @@ func show_round_results(gains: Dictionary, info: Dictionary) -> void:
 	root.add_child(dim)
 	_full_rect(dim)
 
-	var center := CenterContainer.new()
+	var center: Container = FitBox.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(center)
 	_full_rect(center)
@@ -992,7 +995,7 @@ func show_podium() -> void:
 		if GameManager.rank_of(id, ids) == 0:
 			champs.append(str(GameManager.players[id]["name"]))
 
-	var center := CenterContainer.new()
+	var center: Container = FitBox.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(center)
 	_full_rect(center)

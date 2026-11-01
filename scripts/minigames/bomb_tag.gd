@@ -201,6 +201,12 @@ func get_spawn_points() -> Array:
 func filter_human_input(p, mv: Vector2) -> Vector2:
 	if mv.length() < 0.3:
 		return mv
+	# Joystick pushes that are close to straight up/down/left/right snap to that direction,
+	# so you run cleanly down corridors (true diagonals still work).
+	var ang: float = mv.angle()
+	var snapped_ang: float = snappedf(ang, PI * 0.5)
+	if absf(angle_difference(ang, snapped_ang)) < deg_to_rad(27.0):
+		mv = Vector2.from_angle(snapped_ang) * mv.length()
 	var pos: Vector2 = p.position
 	var c := cell_of(pos)
 	var center := cell_center(c)
