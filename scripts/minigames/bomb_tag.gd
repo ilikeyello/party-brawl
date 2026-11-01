@@ -11,17 +11,22 @@ const COLS := 15
 const ROWS := 8
 const CELL := 64.0
 const ARENA := Rect2(160, 104, 960, 512)
+## Pac-Man style: every corridor loops, no dead ends, and the middle row has
+## warp tunnels at both sides (run off the left edge, come out on the right).
 const MAZE := [
-	"...#.......#...",
-	".#.#.##.##.#.#.",
-	".#.#.#...#.#.#.",
-	".###.#.#.#.###.",
 	"...............",
-	"#.##.#.#.#.##.#",
-	"..#..#...#..#..",
-	".##.##...##.##.",
+	".###.##.##.###.",
+	"...............",
+	"#.##.##.##.##.#",
+	"...............",
+	".##..#...#..##.",
+	".##..#...#..##.",
+	"...............",
 ]
+const WARP_ROW := 4
 const WALL_T := 40.0
+const TUNNEL_LEN := 80.0
+const WARP_AT := 26.0     # how far past the edge before you pop out the other side
 const WALL_H := 24.0
 const BLOCK_H := 24.0
 const BLOCK_INSET := 3.0
@@ -96,7 +101,19 @@ func _neighbors(c: Vector2i) -> Array:
 		var n: Vector2i = c + d
 		if _is_open(n):
 			out.append(n)
+	# Warp tunnel
+	if c.y == WARP_ROW and c.x == 0:
+		out.append(Vector2i(COLS - 1, WARP_ROW))
+	elif c.y == WARP_ROW and c.x == COLS - 1:
+		out.append(Vector2i(0, WARP_ROW))
 	return out
+
+
+## Open in direction d from cell c (counts the warp tunnels as open).
+func _open_dir(c: Vector2i, d: Vector2i) -> bool:
+	if c.y == WARP_ROW and ((c.x == 0 and d.x < 0) or (c.x == COLS - 1 and d.x > 0)):
+		return true
+	return _is_open(c + d)
 
 
 ## Breadth-first distances (in cells) from `start` to every open cell. -1 = unreachable.
@@ -164,8 +181,17 @@ func build_arena() -> void:
 	# Outer walls (collision)
 	add_wall(Rect2(ARENA.position.x - WALL_T, ARENA.position.y - WALL_T, ARENA.size.x + WALL_T * 2.0, WALL_T))
 	add_wall(Rect2(ARENA.position.x - WALL_T, ARENA.end.y, ARENA.size.x + WALL_T * 2.0, WALL_T))
-	add_wall(Rect2(ARENA.position.x - WALL_T, ARENA.position.y, WALL_T, ARENA.size.y))
-	add_wall(Rect2(ARENA.end.x, ARENA.position.y, WALL_T, ARENA.size.y))
+	# Side walls with a gap for the warp tunnel, plus tunnel walls and an end cap.
+	var ty: float = ARENA.position.y + float(WARP_ROW) * CELL
+	for side in [-1, 1]:
+		var x0: float = ARENA.position.x - WALL_T if side < 0 else ARENA.end.x
+		add_wall(Rect2(x0, ARENA.position.y, WALL_T, ty - ARENA.position.y))
+		add_wall(Rect2(x0, ty + CELL, WALL_T, ARENA.end.y - ty - CELL))
+		var tx: float = ARENA.position.x - TUNNEL_LEN if side < 0 else ARENA.end.x
+		add_wall(Rect2(tx, ty - 20.0, TUNNEL_LEN, 20.0))
+		add_wall(Rect2(tx, ty + CELL, TUNNEL_LEN, 20.0))
+		var cap_x: float = ARENA.position.x - TUNNEL_LEN - 20.0 if side < 0 else ARENA.end.x + TUNNEL_LEN
+		add_wall(Rect2(cap_x, ty - 20.0, 20.0, CELL + 40.0))
 	var front := Node2D.new()
 	front.name = "FrontWall"
 	front.position = Vector2(0, ARENA.end.y + WALL_T)
@@ -192,7 +218,7 @@ func build_arena() -> void:
 
 
 func get_spawn_points() -> Array:
-	return [cell_center(Vector2i(0, 0)), cell_center(Vector2i(14, 0)), cell_center(Vector2i(14, 6)), cell_center(Vector2i(0, 6)), cell_center(Vector2i(7, 4))]
+	return [cell_center(Vector2i(0, 0)), cell_center(Vector2i(14, 0)), cell_center(Vector2i(14, 7)), cell_center(Vector2i(0, 7)), cell_center(Vector2i(7, 4))]
 
 
 ## Cornering help for human players (keyboard or joystick):
@@ -214,7 +240,7 @@ func filter_human_input(p, mv: Vector2) -> Vector2:
 	var main_dir := Vector2i(int(signf(mv.x)), 0) if horiz else Vector2i(0, int(signf(mv.y)))
 	var side_off: float = (pos.y - center.y) if horiz else (pos.x - center.x)
 	var out := mv
-	if _is_open(c + main_dir):
+	if _open_dir(c, main_dir):
 		# Open ahead: line up with the lane (unless the player is clearly steering diagonally).
 		var cross: float = absf(mv.y) if horiz else absf(mv.x)
 		if cross < 0.5 and absf(side_off) > 2.0:
@@ -246,6 +272,7 @@ func on_game_start() -> void:
 
 func game_step(delta: float) -> void:
 	pass_cooldown = maxf(pass_cooldown - delta, 0.0)
+	_do_warps()
 	_update_powerups(delta)
 	if holder_id == 0:
 		if alive_count() > 1:
@@ -270,6 +297,19 @@ func game_step(delta: float) -> void:
 			if p.position.distance_to(holder.position) <= PASS_DIST:
 				_pass_bomb(holder, p)
 				break
+
+
+func _do_warps() -> void:
+	for p in alive_players():
+		var x: float = p.position.x
+		if x < ARENA.position.x - WARP_AT:
+			p.position.x = ARENA.end.x + WARP_AT - 8.0
+			p.position.y = cell_center(Vector2i(0, WARP_ROW)).y
+			push_event(p.position + Vector2(-30, -50), "WARP!", Color("#00F5D4"))
+		elif x > ARENA.end.x + WARP_AT:
+			p.position.x = ARENA.position.x - WARP_AT + 8.0
+			p.position.y = cell_center(Vector2i(0, WARP_ROW)).y
+			push_event(p.position + Vector2(30, -50), "WARP!", Color("#00F5D4"))
 
 
 func can_receive(p) -> bool:
@@ -501,6 +541,10 @@ func _follow(p, goal: Vector2i, goal_pos: Vector2) -> Vector2:
 			cur = dn
 			next = n
 	var target: Vector2 = cell_center(next)
+	if absi(next.x - here.x) > 1:
+		# Going through the warp tunnel: keep running toward the edge.
+		var dir_x: float = -1.0 if here.x == 0 else 1.0
+		return Vector2(dir_x, clampf((cell_center(here).y - p.position.y) / 20.0, -1.0, 1.0)).normalized()
 	var v: Vector2 = target - p.position
 	return v.normalized() if v.length() > 1.0 else Vector2.ZERO
 
@@ -616,8 +660,22 @@ func _draw_floor() -> void:
 	var top_c := Color("#3a4a8c")
 	var front_c := Color("#1f2853")
 	UI.draw_block(f, Rect2(ARENA.position.x - WALL_T, ARENA.position.y - WALL_T, ARENA.size.x + WALL_T * 2.0, WALL_T), WALL_H, top_c, front_c)
-	UI.draw_block(f, Rect2(ARENA.position.x - WALL_T, ARENA.position.y, WALL_T, ARENA.size.y), WALL_H, top_c, front_c)
-	UI.draw_block(f, Rect2(ARENA.end.x, ARENA.position.y, WALL_T, ARENA.size.y), WALL_H, top_c, front_c)
+	var ty: float = ARENA.position.y + float(WARP_ROW) * CELL
+	for side in [-1, 1]:
+		var x0: float = ARENA.position.x - WALL_T if side < 0 else ARENA.end.x
+		var tx: float = ARENA.position.x - TUNNEL_LEN if side < 0 else ARENA.end.x
+		# Tunnel floor with glowing chevrons
+		f.draw_rect(Rect2(tx, ty, TUNNEL_LEN, CELL), Color("#1b2550"))
+		var pulse: float = 0.5 + 0.5 * sin(_t * 5.0)
+		for k in 3:
+			var cx: float = tx + TUNNEL_LEN * (0.2 + 0.3 * float(k))
+			var cy: float = ty + CELL * 0.5
+			var dx: float = -10.0 if side < 0 else 10.0
+			f.draw_polyline(PackedVector2Array([Vector2(cx - dx, cy - 12), Vector2(cx + dx, cy), Vector2(cx - dx, cy + 12)]), Color(0.0, 0.96, 0.83, 0.3 + 0.5 * pulse * (float(k + 1) / 3.0)), 4.0, true)
+		UI.draw_block(f, Rect2(x0, ARENA.position.y, WALL_T, ty - ARENA.position.y), WALL_H, top_c, front_c)
+		UI.draw_block(f, Rect2(x0, ty + CELL, WALL_T, ARENA.end.y - ty - CELL), WALL_H, top_c, front_c)
+		UI.draw_block(f, Rect2(tx, ty - 20.0, TUNNEL_LEN, 20.0), WALL_H * 0.6, top_c, front_c)
+		UI.draw_block(f, Rect2(tx, ty + CELL, TUNNEL_LEN, 20.0), WALL_H * 0.6, top_c, front_c)
 	f.draw_line(Vector2(ARENA.position.x, ARENA.position.y - 1), Vector2(ARENA.end.x, ARENA.position.y - 1), Color(0.0, 0.96, 0.83, 0.5), 3.0)
 
 

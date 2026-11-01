@@ -14,7 +14,7 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
-const BUILD := "1.2 (mobile)"
+const BUILD := "1.3 (pac-maze)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
 const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
@@ -31,12 +31,12 @@ const GAME_INFO := {
 		"rules": "AIM. LOCK IN. LAUNCH!",
 		"help": "Each turn, aim where you want to slide and LOCK IN. Everyone launches at once on slippery ice - bump rivals off, but if they dodge you might slide off yourself! The ring shrinks every turn.",
 		"pc": "MOUSE: point where to slide (further = more power)   CLICK / SPACE: lock in   A/D + W/S: aim with keys",
-		"touch": "TOUCH THE ICE where you want to slide (or fine-tune with the joystick)   then tap LOCK IN",
+		"touch": "DRAG ANYWHERE and PULL BACK like a slingshot (longer pull = harder)   then tap LOCK IN",
 	},
 	"bomb_tag": {
 		"title": "BOMB TAG",
 		"rules": "PASS THE BOMB BEFORE IT BLOWS!",
-		"help": "Touch a rival to pass the bomb - no tag-backs! Holder runs faster. Grab power-ups: FREEZE, TIME (+3s for holder, -2s for others), SPEED, SHIELD.",
+		"help": "Touch a rival to pass the bomb - no tag-backs! Holder runs faster. Use the side tunnels to warp across! Power-ups: FREEZE, TIME (+3s for holder, -2s for others), SPEED, SHIELD.",
 		"pc": "WASD / ARROWS: move   SPACE / SHIFT / CLICK: dash",
 		"touch": "JOYSTICK: move   DASH button",
 	},
@@ -104,13 +104,16 @@ func _ready() -> void:
 func _update_ui_scale() -> void:
 	var target := 1.0
 	if touch_mode:
-		var win := Vector2(get_window().size)
-		var dpr: float = maxf(DisplayServer.screen_get_scale(), 1.0)
+		var short_side: float = 9999.0
 		if OS.has_feature("web"):
-			var r = JavaScriptBridge.eval("window.devicePixelRatio || 1", true)
+			# Use the physical screen size (not the page size) so the on-screen keyboard
+			# opening/closing never changes the layout.
+			var r = JavaScriptBridge.eval("Math.min(screen.width, screen.height)", true)
 			if typeof(r) == TYPE_FLOAT or typeof(r) == TYPE_INT:
-				dpr = maxf(float(r), 1.0)
-		var short_side: float = minf(win.x, win.y) / dpr   # in CSS / logical pixels
+				short_side = float(r)
+		else:
+			var win := Vector2(DisplayServer.screen_get_size())
+			short_side = minf(win.x, win.y) / maxf(DisplayServer.screen_get_scale(), 1.0)
 		if short_side < 460.0:
 			target = 1.6
 		elif short_side < 620.0:

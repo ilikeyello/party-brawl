@@ -332,6 +332,7 @@ func _build_lobby() -> void:
 	name_edit.text = _saved_name()
 	name_edit.max_length = 12
 	name_edit.placeholder_text = "Enter your name"
+	name_edit.focus_entered.connect(_native_text_input.bind(name_edit, "Your name (max 12 letters):"))
 	lv.add_child(name_edit)
 
 	quick_btn = UI.make_button("QUICK PLAY ONLINE", Color("#2ECC71"), 24)
@@ -357,6 +358,7 @@ func _build_lobby() -> void:
 	ip_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ip_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ip_edit.text_submitted.connect(func(_text): _on_join())
+	ip_edit.focus_entered.connect(_native_text_input.bind(ip_edit, "Room code (4 letters):"))
 	join_row.add_child(ip_edit)
 	join_btn = UI.make_button("JOIN", Color("#9B5DE5"), 19)
 	join_btn.pressed.connect(_on_join)
@@ -464,6 +466,28 @@ func _build_lobby() -> void:
 	controls_hint = UI.make_label("", 15, Color(1, 1, 1, 0.6), 4, HORIZONTAL_ALIGNMENT_CENTER)
 	col.add_child(controls_hint)
 	_update_controls_hint()
+
+
+## On phones in the browser, use the phone's own text box instead of the game's
+## (the browser keyboard resizes the page and makes the game jump around).
+func _native_text_input(edit: LineEdit, question: String) -> void:
+	if not OS.has_feature("web") or not GameManager.touch_mode:
+		return
+	edit.release_focus()
+	var cur := ""
+	for ch in edit.text:
+		if ch.is_valid_identifier() or ch == " " or ch.is_valid_int():
+			cur += ch
+	var answer = JavaScriptBridge.eval("(function(){ var r = window.prompt('%s', '%s'); return r === null ? '__cancel__' : r; })()" % [question.replace("'", ""), cur], true)
+	if typeof(answer) == TYPE_STRING and str(answer) != "__cancel__":
+		var t := str(answer).strip_edges().substr(0, edit.max_length if edit.max_length > 0 else 12)
+		if edit == ip_edit:
+			t = t.to_upper()
+		edit.text = t
+		if edit == name_edit:
+			_remember_name()
+		elif t.length() == 4:
+			_on_join()
 
 
 func _toggle_fullscreen() -> void:

@@ -11,6 +11,7 @@ const KNOB_RADIUS := 32.0
 const BUTTON_SIZE := 110.0
 const DEADZONE := 0.12
 const FULL_AT := 0.6          # stick reaches full speed at 60% of the radius
+const SLING_FULL := 170.0     # sumo slingshot: pull this far for full power
 
 var joystick_vector: Vector2 = Vector2.ZERO
 var action_held: bool = false
@@ -29,6 +30,7 @@ var _joy_origin: Vector2 = Vector2.ZERO
 var free_aim: bool = false
 var free_active: bool = false
 var free_pos: Vector2 = Vector2.ZERO
+var free_start: Vector2 = Vector2.ZERO
 var _free_touch: int = -1
 var _latched: bool = false
 var _t: float = 0.0
@@ -277,6 +279,7 @@ func _input(event: InputEvent) -> void:
 				_free_touch = st.index
 				free_active = true
 				free_pos = st.position
+				free_start = st.position
 		else:
 			if st.index == _joy_touch:
 				_joy_touch = -1
@@ -322,7 +325,7 @@ func _in_joy_zone(p: Vector2) -> bool:
 	if p.y < s.y * 0.16:
 		return false   # top bar
 	if free_aim:
-		return p.x < s.x * 0.3 and p.y > s.y * 0.5
+		return false   # sumo on phones: the whole screen is the slingshot
 	return p.x < s.x * 0.5
 
 
@@ -357,6 +360,10 @@ func _draw_pad() -> void:
 	if not GameManager.touch_mode:
 		_draw_pc_hud()
 		return
+	if free_aim:
+		_draw_sling()
+		_draw_action_button()
+		return
 	# Joystick base
 	var jc := joy_center()
 	var touching := _joy_touch != -1
@@ -374,7 +381,10 @@ func _draw_pad() -> void:
 	pad.draw_circle(kp + Vector2(0, 6), KNOB_RADIUS, Color(0, 0, 0, 0.3))
 	pad.draw_circle(kp, KNOB_RADIUS, Color(1, 1, 1, 0.6 if touching else 0.4))
 	pad.draw_circle(kp + Vector2(-9, -10), KNOB_RADIUS * 0.33, Color(1, 1, 1, 0.5))
+	_draw_action_button()
 
+
+func _draw_action_button() -> void:
 	# Action button (raised; sinks when pressed)
 	var bc := btn_center()
 	var r := BUTTON_SIZE * 0.5
@@ -400,3 +410,23 @@ func _draw_pad() -> void:
 	var text_pos := top + Vector2(-r, 7)
 	pad.draw_string_outline(font, text_pos, action_label, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 17, 6, Color(0, 0, 0, 0.6))
 	pad.draw_string(font, text_pos, action_label, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 17, Color.WHITE)
+
+
+## Sumo slingshot: line from where the drag started to the finger.
+func _draw_sling() -> void:
+	var font: Font = UI.title_font()
+	if free_active:
+		var pull := free_start - free_pos
+		pad.draw_circle(free_start, 26.0, Color(1, 1, 1, 0.15))
+		pad.draw_arc(free_start, 26.0, 0.0, TAU, 32, Color(1, 1, 1, 0.6), 3.0, true)
+		pad.draw_line(free_start, free_pos, Color(1, 1, 1, 0.55), 6.0, true)
+		pad.draw_circle(free_pos, 18.0, Color(1, 1, 1, 0.5))
+		var pct: int = int(clampf(pull.length() / SLING_FULL, 0.0, 1.0) * 100.0)
+		var txt := "%d%%" % pct
+		pad.draw_string_outline(font, free_pos + Vector2(-50, -30), txt, HORIZONTAL_ALIGNMENT_CENTER, 100, 20, 6, Color(0, 0, 0, 0.7))
+		pad.draw_string(font, free_pos + Vector2(-50, -30), txt, HORIZONTAL_ALIGNMENT_CENTER, 100, 20, Color.WHITE)
+	else:
+		var s := _vp_size()
+		var t := "DRAG + PULL BACK TO AIM"
+		pad.draw_string_outline(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, Color(0, 0, 0, 0.7))
+		pad.draw_string(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.8))
