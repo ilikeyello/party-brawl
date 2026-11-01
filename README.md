@@ -48,7 +48,7 @@ Notes:
 ## Testing
 - `server/`: `npm install`, then `PORT=8099 node server.js`, then `PORT=8099 node test_client.js` runs the protocol tests.
 - `autotest.txt` in the project folder makes bots play a full match, with screenshots in `autotest_shots/`.
-  Options: `mode=party|wins|single count=N games=bumper_sumo,bomb_tag,tile_painter net=host|web`.
+  Options: `mode=party|wins|single count=N games=a,b net=host|web speed=X`, or `ui=1` to click through every menu screen and save screenshots.
   - `net=host` runs a local server, joins Quick Play, and launches a second game copy that joins the same match.
   - `net=web` serves the web build at <http://127.0.0.1:8091/?server=ws://127.0.0.1:8090/ws> and waits for a browser player.
   Delete the file to play normally.

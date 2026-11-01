@@ -116,6 +116,7 @@ func _handle_command_line() -> void:
 var _shot_n: int = 0
 var _shot_prefix: String = "shot_"
 var _auto_speed: float = 2.0
+var _shot_timer: Timer
 
 
 func _setup_shots(interval: float) -> void:
@@ -124,6 +125,7 @@ func _setup_shots(interval: float) -> void:
 	if f != null:
 		f.close()
 	var shots := Timer.new()
+	_shot_timer = shots
 	shots.wait_time = interval
 	shots.ignore_time_scale = true
 	shots.timeout.connect(_save_shot)
@@ -153,7 +155,12 @@ func _start_autotest() -> void:
 					net = kv[1]
 				"speed":
 					_auto_speed = float(kv[1])
+				"ui":
+					net = "ui"
 	GameManager.set_rules(r)
+	if net == "ui":
+		_ui_tour()
+		return
 	if net == "web":
 		# Serve the web build + run a relay, then host a quick match and wait for a browser player.
 		GameManager.start_local_server()
@@ -191,6 +198,67 @@ func _start_autotest() -> void:
 			missing.append(k)
 	print("[AUTOTEST] audio loaded: %d sounds, missing: %s" % [Sfx._streams.size() - missing.size(), str(missing)])
 	GameManager.play_solo("AutoBot")
+
+
+## Autotest "ui=1": visits every menu screen (big window, then a phone-shaped one) and saves screenshots.
+func _ui_tour() -> void:
+	_shot_timer.stop()
+	print("[AUTOTEST] UI tour")
+	GameManager.start_local_server()
+	for pass_i in 2:
+		if pass_i == 1:
+			get_window().size = Vector2i(874, 402)
+			await _wait(1.0)
+		_show_screen("home")
+		await _wait(0.6)
+		_save_shot()
+		_open_settings()
+		await _wait(0.5)
+		_save_shot()
+		_close_settings()
+		_on_solo()
+		await _wait(0.5)
+		_save_shot()
+		_on_bots_step(1)
+		_on_mode_pressed("wins")
+		await _wait(0.5)
+		_save_shot()
+		_on_mode_pressed("party")
+		_show_screen("home")
+		_on_host()
+		await _wait(2.0)
+		print("[AUTOTEST] room screen: kind=%s code=%s screen=%s" % [GameManager.session_kind, GameManager.room_code, screen])
+		_save_shot()
+		_on_leave()
+		await _wait(0.5)
+		GameManager.quick_wait = 6.0
+		_on_quick()
+		await _wait(0.4)
+		_save_shot()
+		await _wait(2.0)
+		print("[AUTOTEST] quick screen: kind=%s countdown=%.1f screen=%s" % [GameManager.session_kind, GameManager.quick_countdown, screen])
+		_save_shot()
+		if pass_i == 0:
+			_on_leave()
+			await _wait(0.5)
+			print("[AUTOTEST] after cancel: screen=%s online=%s" % [screen, str(GameManager.is_online)])
+	# Let the quick match time out: bots should fill in and the match should start.
+	await _wait(6.0)
+	print("[AUTOTEST] after wait: match_active=%s players=%d game=%s" % [str(GameManager.match_active), GameManager.players.size(), GameManager.current_game_id])
+	_save_shot()
+	GameManager.return_to_lobby()
+	await _wait(0.8)
+	print("[AUTOTEST] back from match: screen=%s lobby=%s" % [screen, str(lobby.visible)])
+	_save_shot()
+	# Solo with 1 bot -> 2 players
+	GameManager.play_solo("Solo", 1)
+	await _wait(0.5)
+	print("[AUTOTEST] solo 1 bot: players=%d" % GameManager.players.size())
+	print("[AUTOTEST] UI tour done")
+
+
+func _wait(sec: float) -> Signal:
+	return get_tree().create_timer(sec).timeout
 
 
 func _on_webtest_players() -> void:
@@ -287,6 +355,11 @@ func _process(delta: float) -> void:
 	if rotate_hint != null:
 		var vs := get_viewport().get_visible_rect().size
 		rotate_hint.visible = GameManager.touch_mode and vs.y > vs.x * 1.15
+	if lobby != null and lobby.visible and screen == "quick" and quick_title != null:
+		var dots: int = int(_t * 2.0) % 4
+		var txt: String = _quick_base + ".".repeat(dots)
+		if quick_title.text != txt:
+			quick_title.text = txt
 	if lobby != null and lobby.visible and lobby_title != null:
 		lobby_title.pivot_offset = lobby_title.size * 0.5
 		lobby_title.scale = Vector2.ONE * (1.0 + 0.025 * sin(_t * 3.0))
@@ -299,11 +372,45 @@ func _unhandled_input(event: InputEvent) -> void:
 		var k := event as InputEventKey
 		if k.pressed and not k.echo and (k.physical_keycode == KEY_SPACE or k.physical_keycode == KEY_ENTER) and _intro_ready_btn != null and is_instance_valid(_intro_ready_btn) and _intro_ready_btn.visible:
 			_on_intro_ready()
+		if k.pressed and not k.echo and k.physical_keycode == KEY_ESCAPE and settings_popup != null and settings_popup.visible:
+			_close_settings()
 		if k.pressed and not k.echo and k.physical_keycode == KEY_ESCAPE and current_game != null:
 			GameManager.return_to_lobby()
 
 
 # ---------------------------------------------------------------- lobby
+## The menu has 4 screens (only one shows at a time):
+##   home  - your name, Quick Play, Play Solo, Create Room, Join
+##   quick - "waiting for more players" (Quick Play matchmaking)
+##   solo  - pick the match rules + how many bots, then start
+##   room  - private room: code to share, players, match rules, start
+## Settings (music, sound, battery saver, fullscreen) live in a pop-up behind the gear button.
+
+var screen := "home"
+var screens: Dictionary = {}
+var rules_panel: PanelContainer
+var solo_row: HBoxContainer
+var room_row: HBoxContainer
+var quick_title: Label
+var quick_count: Label
+var quick_info: Label
+var quick_chips: HBoxContainer
+var _quick_sig := ""
+var _quick_base := ""
+var solo_bots: int = 3
+var solo_bots_label: Label
+var solo_list: VBoxContainer
+var bots_minus: Button
+var bots_plus: Button
+var room_hint: Label
+var room_status: Label
+var settings_btn: Button
+var settings_popup: Control
+var music_btn: Button
+var sound_btn: Button
+var saver_btn: Button
+var _last_humans := 0
+
 
 func _build_lobby() -> void:
 	lobby = Control.new()
@@ -319,17 +426,8 @@ func _build_lobby() -> void:
 	lobby.add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	if (OS.has_feature("web") or GameManager.is_touch_device()) and not GameManager.is_ios_browser():
-		fullscreen_btn = UI.make_button("FULLSCREEN", Color("#3a86ff"), 15)
-		fullscreen_btn.pressed.connect(_toggle_fullscreen)
-		lobby.add_child(fullscreen_btn)
-		fullscreen_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		fullscreen_btn.position = Vector2(-150, 10)
-		GameManager.safe_insets_changed.connect(func(): fullscreen_btn.position = Vector2(-150.0 - GameManager.safe_insets.z, 10.0 + GameManager.safe_insets.y))
-		fullscreen_btn.size = Vector2(140, 40)
-
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", 14)
 	center.add_child(col)
 
 	lobby_title = UI.make_label("PARTY BRAWL", 84, Color("#FEE440"), 16, HORIZONTAL_ALIGNMENT_CENTER)
@@ -337,46 +435,88 @@ func _build_lobby() -> void:
 	lobby_title.label_settings.shadow_color = Color("#FF4D6D")
 	lobby_title.label_settings.shadow_offset = Vector2(0, 9)
 	col.add_child(lobby_title)
-	col.add_child(UI.make_label("ARCADE PARTY FOR UP TO 5  -  PLAY ON PHONE, TABLET OR PC", 17, Color("#c8c3ff"), 6, HORIZONTAL_ALIGNMENT_CENTER))
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_child(row)
+	rules_panel = _build_rules_panel()
+	screens["home"] = _build_home_screen()
+	screens["quick"] = _build_quick_screen()
+	screens["solo"] = _build_solo_screen()
+	screens["room"] = _build_room_screen()
+	for k in screens:
+		col.add_child(screens[k])
 
-	# ---- Left panel: name + ways to play
-	var left := PanelContainer.new()
-	left.custom_minimum_size = Vector2(390, 0)
-	row.add_child(left)
-	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 8)
-	left.add_child(lv)
+	var ver := UI.make_label("v" + GameManager.BUILD, 13, Color(1, 1, 1, 0.35), 0)
+	lobby.add_child(ver)
+	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	ver.position = Vector2(10, -24)
 
-	lv.add_child(UI.make_label("YOUR NAME", 15, Color("#9d97d8")))
+	# Gear button (top-right corner) opens the settings pop-up.
+	settings_btn = UI.make_button("", Color("#9B5DE5"), 15)
+	settings_btn.tooltip_text = "Settings"
+	settings_btn.pressed.connect(_open_settings)
+	lobby.add_child(settings_btn)
+	settings_btn.anchor_left = 1.0
+	settings_btn.anchor_right = 1.0
+	var gear := Control.new()
+	gear.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gear.draw.connect(_draw_gear.bind(gear))
+	settings_btn.add_child(gear)
+	gear.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	_build_settings_popup()
+	Sfx.settings_changed.connect(_update_settings_ui)
+	GameManager.safe_insets_changed.connect(_update_settings_ui)
+	_update_settings_ui()
+	_show_screen("home")
+
+
+func _panel(min_w: float) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.custom_minimum_size = Vector2(min_w, 0)
+	return p
+
+
+func _heading(text: String, sz: int = 46) -> Label:
+	var l := UI.make_label(text, sz, Color("#FEE440"), 12, HORIZONTAL_ALIGNMENT_CENTER)
+	l.label_settings.shadow_color = Color("#FF4D6D")
+	l.label_settings.shadow_offset = Vector2(0, 5)
+	return l
+
+
+# ---- HOME: just the ways to play, in the middle of the screen
+func _build_home_screen() -> Control:
+	var card := _panel(440)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	card.add_child(v)
+
+	v.add_child(UI.make_label("YOUR NAME", 15, Color("#9d97d8")))
 	name_edit = LineEdit.new()
 	name_edit.text = _saved_name()
 	name_edit.max_length = 12
 	name_edit.placeholder_text = "Enter your name"
 	_setup_native_input(name_edit, "Your name (max 12 letters):")
-	lv.add_child(name_edit)
+	v.add_child(name_edit)
 
-	quick_btn = UI.make_button("QUICK PLAY ONLINE", Color("#2ECC71"), 24)
-	quick_btn.custom_minimum_size = Vector2(0, 62)
+	quick_btn = UI.make_button("QUICK PLAY ONLINE", Color("#2ECC71"), 26)
+	quick_btn.custom_minimum_size = Vector2(0, 66)
 	quick_btn.pressed.connect(_on_quick)
-	lv.add_child(quick_btn)
+	v.add_child(quick_btn)
 
-	solo_btn = UI.make_button("PLAY SOLO (VS BOTS)", Color("#00a8a8"), 19)
+	solo_btn = UI.make_button("PLAY SOLO (VS BOTS)", Color("#00a8a8"), 20)
+	solo_btn.custom_minimum_size = Vector2(0, 50)
 	solo_btn.pressed.connect(_on_solo)
-	lv.add_child(solo_btn)
+	v.add_child(solo_btn)
 
-	lv.add_child(UI.make_label("PLAY WITH FRIENDS", 14, Color("#9d97d8")))
-	host_btn = UI.make_button("CREATE ROOM", Color("#3a86ff"), 19)
+	v.add_child(UI.make_label("PLAY WITH FRIENDS", 14, Color("#9d97d8")))
+	host_btn = UI.make_button("CREATE ROOM", Color("#3a86ff"), 20)
+	host_btn.custom_minimum_size = Vector2(0, 50)
 	host_btn.pressed.connect(_on_host)
-	lv.add_child(host_btn)
+	v.add_child(host_btn)
 
 	var join_row := HBoxContainer.new()
 	join_row.add_theme_constant_override("separation", 10)
-	lv.add_child(join_row)
+	v.add_child(join_row)
 	ip_edit = LineEdit.new()
 	ip_edit.placeholder_text = "ROOM CODE"
 	ip_edit.max_length = 4
@@ -385,31 +525,122 @@ func _build_lobby() -> void:
 	ip_edit.text_submitted.connect(func(_text): _on_join())
 	_setup_native_input(ip_edit, "Room code (4 letters):")
 	join_row.add_child(ip_edit)
-	join_btn = UI.make_button("JOIN", Color("#9B5DE5"), 19)
+	join_btn = UI.make_button("JOIN", Color("#9B5DE5"), 20)
+	join_btn.custom_minimum_size = Vector2(110, 0)
 	join_btn.pressed.connect(_on_join)
 	join_row.add_child(join_btn)
 
-	status_label = UI.make_label("Quick Play matches you with other players online.", 15, Color("#00F5D4"), 4)
+	status_label = UI.make_label("", 15, Color("#00F5D4"), 4, HORIZONTAL_ALIGNMENT_CENTER)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.custom_minimum_size = Vector2(350, 40)
-	lv.add_child(status_label)
+	status_label.custom_minimum_size = Vector2(400, 0)
+	v.add_child(status_label)
+	return card
 
-	# ---- Middle panel: room info, slots, bots toggle, start
-	var mid := PanelContainer.new()
-	mid.custom_minimum_size = Vector2(340, 0)
-	row.add_child(mid)
+
+# ---- QUICK PLAY: waiting for players
+func _build_quick_screen() -> Control:
+	var card := _panel(660)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 16)
+	card.add_child(v)
+	v.add_child(UI.make_label("QUICK PLAY", 18, Color("#9d97d8"), 0, HORIZONTAL_ALIGNMENT_CENTER))
+	quick_title = _heading("WAITING FOR MORE PLAYERS", 40)
+	v.add_child(quick_title)
+	quick_chips = HBoxContainer.new()
+	quick_chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	quick_chips.add_theme_constant_override("separation", 18)
+	quick_chips.custom_minimum_size = Vector2(0, 96)
+	v.add_child(quick_chips)
+	quick_count = UI.make_label("", 24, Color.WHITE, 6, HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(quick_count)
+	quick_info = UI.make_label("", 18, Color("#00F5D4"), 4, HORIZONTAL_ALIGNMENT_CENTER)
+	quick_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(quick_info)
+	var cancel := UI.make_button("CANCEL", Color("#e63946"), 20)
+	cancel.custom_minimum_size = Vector2(220, 52)
+	cancel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cancel.pressed.connect(_on_leave)
+	v.add_child(cancel)
+	return card
+
+
+# ---- SOLO: rules + number of bots
+func _build_solo_screen() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	v.add_child(_heading("PLAY SOLO"))
+	solo_row = HBoxContainer.new()
+	solo_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	solo_row.add_theme_constant_override("separation", 16)
+	v.add_child(solo_row)
+
+	var left := _panel(340)
+	solo_row.add_child(left)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 8)
+	left.add_child(lv)
+	lv.add_child(UI.make_label("NUMBER OF BOTS", 15, Color("#9d97d8")))
+	var step := HBoxContainer.new()
+	step.alignment = BoxContainer.ALIGNMENT_CENTER
+	step.add_theme_constant_override("separation", 14)
+	lv.add_child(step)
+	bots_minus = UI.make_button("-", Color("#9B5DE5"), 24)
+	bots_minus.custom_minimum_size = Vector2(56, 48)
+	bots_minus.pressed.connect(_on_bots_step.bind(-1))
+	step.add_child(bots_minus)
+	solo_bots_label = UI.make_label("3", 34, Color("#FEE440"), 6, HORIZONTAL_ALIGNMENT_CENTER)
+	solo_bots_label.custom_minimum_size = Vector2(60, 0)
+	solo_bots_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	step.add_child(solo_bots_label)
+	bots_plus = UI.make_button("+", Color("#9B5DE5"), 24)
+	bots_plus.custom_minimum_size = Vector2(56, 48)
+	bots_plus.pressed.connect(_on_bots_step.bind(1))
+	step.add_child(bots_plus)
+	solo_list = VBoxContainer.new()
+	solo_list.add_theme_constant_override("separation", 2)
+	lv.add_child(solo_list)
+	solo_row.add_child(rules_panel)
+
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	btns.add_theme_constant_override("separation", 18)
+	v.add_child(btns)
+	var back := UI.make_button("BACK", Color("#3a86ff"), 20)
+	back.custom_minimum_size = Vector2(180, 56)
+	back.pressed.connect(_show_screen.bind("home"))
+	btns.add_child(back)
+	var go := UI.make_button("START MATCH", Color("#FF9F1C"), 24)
+	go.custom_minimum_size = Vector2(280, 56)
+	go.pressed.connect(_on_solo_start)
+	btns.add_child(go)
+	return v
+
+
+# ---- ROOM: code to share, who's in, rules, start
+func _build_room_screen() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	room_label = UI.make_label("ROOM CODE", 18, Color("#9d97d8"), 0, HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(room_label)
+	room_big = _heading("----", 56)
+	v.add_child(room_big)
+	room_hint = UI.make_label("Share this code with friends so they can join", 16, Color("#c8c3ff"), 4, HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(room_hint)
+
+	room_row = HBoxContainer.new()
+	room_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	room_row.add_theme_constant_override("separation", 16)
+	v.add_child(room_row)
+	var mid := _panel(340)
+	room_row.add_child(mid)
 	var mv := VBoxContainer.new()
 	mv.add_theme_constant_override("separation", 6)
 	mid.add_child(mv)
-	room_label = UI.make_label("PLAYERS  -  UP TO 5", 15, Color("#9d97d8"))
-	mv.add_child(room_label)
-	room_big = UI.make_label("", 30, Color("#FEE440"), 8, HORIZONTAL_ALIGNMENT_CENTER)
-	room_big.visible = false
-	mv.add_child(room_big)
+	mv.add_child(UI.make_label("PLAYERS  -  UP TO 5", 15, Color("#9d97d8")))
 	slots_box = VBoxContainer.new()
 	slots_box.add_theme_constant_override("separation", 2)
 	mv.add_child(slots_box)
-
 	bots_check = CheckButton.new()
 	bots_check.text = "Bots fill up to 4 players"
 	bots_check.button_pressed = true
@@ -417,23 +648,28 @@ func _build_lobby() -> void:
 	bots_check.toggled.connect(_on_bots_toggled)
 	mv.add_child(bots_check)
 
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	mv.add_child(spacer)
-
-	start_btn = UI.make_button("START MATCH", Color("#FF9F1C"), 22)
-	start_btn.custom_minimum_size = Vector2(0, 54)
-	start_btn.pressed.connect(_on_start)
-	mv.add_child(start_btn)
-
-	leave_btn = UI.make_button("LEAVE", Color("#e63946"), 18)
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	btns.add_theme_constant_override("separation", 18)
+	v.add_child(btns)
+	leave_btn = UI.make_button("LEAVE", Color("#e63946"), 20)
+	leave_btn.custom_minimum_size = Vector2(180, 56)
 	leave_btn.pressed.connect(_on_leave)
-	mv.add_child(leave_btn)
+	btns.add_child(leave_btn)
+	start_btn = UI.make_button("START MATCH", Color("#FF9F1C"), 24)
+	start_btn.custom_minimum_size = Vector2(280, 56)
+	start_btn.pressed.connect(_on_start)
+	btns.add_child(start_btn)
+	room_status = UI.make_label("", 16, Color("#00F5D4"), 4, HORIZONTAL_ALIGNMENT_CENTER)
+	room_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	room_status.custom_minimum_size = Vector2(500, 0)
+	v.add_child(room_status)
+	return v
 
-	# ---- Right panel: match rules (host / solo player can edit)
-	var right := PanelContainer.new()
-	right.custom_minimum_size = Vector2(380, 0)
-	row.add_child(right)
+
+# ---- Match rules panel (shared by the Solo and Room screens; it moves between them)
+func _build_rules_panel() -> PanelContainer:
+	var right := _panel(380)
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 8)
 	right.add_child(rv)
@@ -483,29 +719,124 @@ func _build_lobby() -> void:
 		gb.pressed.connect(_on_game_pressed.bind(str(gid)))
 		rv.add_child(gb)
 		game_btns[str(gid)] = gb
+	return right
 
-	var ver := UI.make_label("v" + GameManager.BUILD, 13, Color(1, 1, 1, 0.35), 0)
-	lobby.add_child(ver)
-	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	ver.position = Vector2(10, -24)
-	audio_row = HBoxContainer.new()
-	audio_row.add_theme_constant_override("separation", 8)
-	lobby.add_child(audio_row)
-	music_btn = UI.make_button("", Color("#9B5DE5"), 15)
+
+# ---- Settings pop-up
+func _build_settings_popup() -> void:
+	settings_popup = Control.new()
+	settings_popup.visible = false
+	settings_popup.mouse_filter = Control.MOUSE_FILTER_STOP
+	lobby.add_child(settings_popup)
+	settings_popup.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.02, 0.09, 0.78)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_popup.add_child(dim)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Tapping the dark area outside the box closes it.
+	dim.gui_input.connect(func(e: InputEvent):
+		if (e is InputEventMouseButton and (e as InputEventMouseButton).pressed) or (e is InputEventScreenTouch and (e as InputEventScreenTouch).pressed):
+			_close_settings())
+
+	var fit: Container = FitBox.new()
+	fit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	settings_popup.add_child(fit)
+	fit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var card := _panel(420)
+	fit.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	card.add_child(v)
+	v.add_child(_heading("SETTINGS", 40))
+
+	music_btn = UI.make_button("", Color("#9B5DE5"), 20)
+	music_btn.custom_minimum_size = Vector2(0, 52)
 	music_btn.pressed.connect(func(): Sfx.set_music_on(not Sfx.music_on))
-	audio_row.add_child(music_btn)
-	sound_btn = UI.make_button("", Color("#9B5DE5"), 15)
+	v.add_child(music_btn)
+	sound_btn = UI.make_button("", Color("#9B5DE5"), 20)
+	sound_btn.custom_minimum_size = Vector2(0, 52)
 	sound_btn.pressed.connect(func(): Sfx.set_sfx_on(not Sfx.sfx_on))
-	audio_row.add_child(sound_btn)
-	saver_btn = UI.make_button("", Color("#2ECC71"), 15)
+	v.add_child(sound_btn)
+	saver_btn = UI.make_button("", Color("#2ECC71"), 20)
+	saver_btn.custom_minimum_size = Vector2(0, 52)
 	saver_btn.pressed.connect(func(): Sfx.set_battery_saver(not Sfx.battery_saver))
-	audio_row.add_child(saver_btn)
-	Sfx.settings_changed.connect(_update_audio_buttons)
-	GameManager.safe_insets_changed.connect(_update_audio_buttons)
-	_update_audio_buttons()
-	controls_hint = UI.make_label("", 15, Color(1, 1, 1, 0.6), 4, HORIZONTAL_ALIGNMENT_CENTER)
-	col.add_child(controls_hint)
+	v.add_child(saver_btn)
+	var saver_note := UI.make_label("Battery saver runs the games at 30 fps so phones stay cooler.", 14, Color("#c8c3ff"), 3, HORIZONTAL_ALIGNMENT_CENTER)
+	saver_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	saver_note.custom_minimum_size = Vector2(380, 0)
+	v.add_child(saver_note)
+
+	if (OS.has_feature("web") or GameManager.is_touch_device()) and not GameManager.is_ios_browser():
+		fullscreen_btn = UI.make_button("FULLSCREEN", Color("#3a86ff"), 20)
+		fullscreen_btn.custom_minimum_size = Vector2(0, 52)
+		fullscreen_btn.pressed.connect(_toggle_fullscreen)
+		v.add_child(fullscreen_btn)
+
+	controls_hint = UI.make_label("", 15, Color(1, 1, 1, 0.7), 3, HORIZONTAL_ALIGNMENT_CENTER)
+	controls_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	controls_hint.custom_minimum_size = Vector2(380, 0)
+	v.add_child(controls_hint)
 	_update_controls_hint()
+
+	var close := UI.make_button("CLOSE", Color("#e63946"), 20)
+	close.custom_minimum_size = Vector2(200, 52)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(_close_settings)
+	v.add_child(close)
+
+
+func _open_settings() -> void:
+	settings_popup.visible = true
+
+
+func _close_settings() -> void:
+	settings_popup.visible = false
+
+
+func _draw_gear(c: Control) -> void:
+	var ctr := c.size * 0.5
+	var r_out: float = minf(c.size.x, c.size.y) * 0.34
+	var r_in: float = r_out * 0.74
+	var pts := PackedVector2Array()
+	var teeth := 8
+	for i in teeth:
+		var a0: float = TAU * float(i) / float(teeth)
+		var w: float = TAU / float(teeth)
+		pts.append(ctr + Vector2.from_angle(a0 - w * 0.30) * r_in)
+		pts.append(ctr + Vector2.from_angle(a0 - w * 0.16) * r_out)
+		pts.append(ctr + Vector2.from_angle(a0 + w * 0.16) * r_out)
+		pts.append(ctr + Vector2.from_angle(a0 + w * 0.30) * r_in)
+	c.draw_colored_polygon(pts, Color.WHITE)
+	c.draw_circle(ctr, r_in * 0.42, Color("#9B5DE5").darkened(0.1))
+
+
+func _update_settings_ui() -> void:
+	if music_btn == null:
+		return
+	music_btn.text = "MUSIC: ON" if Sfx.music_on else "MUSIC: OFF"
+	sound_btn.text = "SOUND: ON" if Sfx.sfx_on else "SOUND: OFF"
+	music_btn.modulate.a = 1.0 if Sfx.music_on else 0.55
+	sound_btn.modulate.a = 1.0 if Sfx.sfx_on else 0.55
+	saver_btn.text = "BATTERY SAVER: ON" if Sfx.battery_saver else "BATTERY SAVER: OFF"
+	saver_btn.modulate.a = 1.0 if Sfx.battery_saver else 0.55
+	var ins: Vector4 = GameManager.safe_insets
+	settings_btn.offset_left = -70.0 - ins.z
+	settings_btn.offset_right = -12.0 - ins.z
+	settings_btn.offset_top = 12.0 + ins.y
+	settings_btn.offset_bottom = 70.0 + ins.y
+
+
+func _show_screen(s: String) -> void:
+	screen = s
+	for k in screens:
+		(screens[k] as Control).visible = k == s
+	lobby_title.visible = s == "home"
+	var target: Control = solo_row if s == "solo" else (room_row if s == "room" else null)
+	if target != null and rules_panel.get_parent() != target:
+		rules_panel.get_parent().remove_child(rules_panel)
+		target.add_child(rules_panel)
+	_refresh_lobby()
 
 
 ## On phones in the browser, use the phone's own text box instead of the game's
@@ -564,25 +895,6 @@ func _open_native_prompt(edit: LineEdit, question: String) -> void:
 		_on_join()
 
 
-var audio_row: HBoxContainer
-var music_btn: Button
-var sound_btn: Button
-var saver_btn: Button
-var _last_humans := 0
-
-
-func _update_audio_buttons() -> void:
-	if music_btn == null:
-		return
-	music_btn.text = "MUSIC: ON" if Sfx.music_on else "MUSIC: OFF"
-	sound_btn.text = "SOUND: ON" if Sfx.sfx_on else "SOUND: OFF"
-	music_btn.modulate.a = 1.0 if Sfx.music_on else 0.55
-	sound_btn.modulate.a = 1.0 if Sfx.sfx_on else 0.55
-	saver_btn.text = "BATTERY SAVER: ON" if Sfx.battery_saver else "BATTERY SAVER: OFF"
-	saver_btn.modulate.a = 1.0 if Sfx.battery_saver else 0.55
-	audio_row.position = Vector2(10.0 + GameManager.safe_insets.x, 10.0 + GameManager.safe_insets.y)
-
-
 func _toggle_fullscreen() -> void:
 	var fs := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fs else DisplayServer.WINDOW_MODE_FULLSCREEN)
@@ -592,9 +904,9 @@ func _update_controls_hint() -> void:
 	if controls_hint == null:
 		return
 	if GameManager.touch_mode:
-		controls_hint.text = "MOVE: joystick (left)      ACTION: button (right)"
+		controls_hint.text = "CONTROLS: joystick on the left to move, button on the right for action."
 	else:
-		controls_hint.text = "MOVE: WASD / Arrows      DASH: Space / Shift / Click      SUMO: aim with the mouse      ESC: quit match"
+		controls_hint.text = "CONTROLS: WASD / Arrows to move.  Space / Shift / Click to dash.  Sumo: aim with the mouse.  ESC quits a match."
 
 
 func _can_edit_rules() -> bool:
@@ -686,37 +998,139 @@ func _refresh_rules_ui() -> void:
 		gb.modulate = Color(1, 1, 1, 1.0) if games.has(gid) else Color(1, 1, 1, 0.3)
 		gb.disabled = not editable
 	if not editable:
-		if GameManager.session_kind == "quick":
-			mode_desc.text += "  (Quick Play uses standard rules.)"
-		else:
-			mode_desc.text += "  (Host picks the rules.)"
+		mode_desc.text += "  (The host picks the rules.)"
+
+
+func _human_count() -> int:
+	var n := 0
+	for pid in GameManager.players:
+		if not bool(GameManager.players[pid]["is_bot"]):
+			n += 1
+	return n
 
 
 func _refresh_lobby() -> void:
-	if slots_box == null:
+	if slots_box == null or lobby == null:
 		return
-	var hcount := 0
-	for pid in GameManager.players:
-		if not bool(GameManager.players[pid]["is_bot"]):
-			hcount += 1
+	var kind: String = GameManager.session_kind
+	# Follow the online session: Quick Play -> waiting screen, room -> room screen,
+	# session gone -> back home. ("connecting" stays on the screen the button opened.)
+	var want := screen
+	if kind == "quick":
+		want = "quick"
+	elif kind == "room":
+		want = "room"
+	elif kind == "" and (screen == "quick" or screen == "room"):
+		want = "home"
+	if want != screen:
+		_show_screen(want)
+		return
+
+	var hcount := _human_count()
 	if hcount > _last_humans and _last_humans > 0 and lobby.visible:
 		Sfx.play("join")
 	_last_humans = hcount
+
+	match screen:
+		"quick":
+			_refresh_quick()
+		"solo":
+			_refresh_solo()
+		"room":
+			_refresh_room()
+	_refresh_rules_ui()
+	var online := GameManager.is_online
+	quick_btn.disabled = online
+	solo_btn.disabled = online
+	host_btn.disabled = online
+	join_btn.disabled = online
+	ip_edit.editable = not online and not _native_inputs
+	name_edit.editable = not online and not _native_inputs
+
+
+func _refresh_quick() -> void:
+	var kind: String = GameManager.session_kind
+	var humans: int = GameManager.players.size()   # bots only join when the match starts
+	var by_slot := {}
+	for id in GameManager.players:
+		by_slot[int(GameManager.players[id]["slot"])] = GameManager.players[id]
+	# Player chips: only rebuilt when someone joins or leaves.
+	var sig := ""
+	for s in GameManager.MAX_PLAYERS:
+		sig += (str(by_slot[s]["name"]) + "|") if by_slot.has(s) else "-|"
+	if sig != _quick_sig:
+		_quick_sig = sig
+		for c in quick_chips.get_children():
+			c.queue_free()
+		for s in GameManager.MAX_PLAYERS:
+			var chip := VBoxContainer.new()
+			chip.custom_minimum_size = Vector2(104, 0)
+			chip.add_theme_constant_override("separation", 2)
+			var here := by_slot.has(s)
+			var ball := _ball_icon(GameManager.COLORS[s] if here else Color(0.35, 0.33, 0.55), 56.0)
+			if not here:
+				ball.modulate.a = 0.45
+			chip.add_child(ball)
+			var nm := "?"
+			var ncol := Color(1, 1, 1, 0.4)
+			if here:
+				nm = str(by_slot[s]["name"])
+				# Your own name shows in yellow.
+				ncol = Color("#FEE440") if int(by_slot[s]["id"]) == GameManager.my_id() else Color.WHITE
+			var l := UI.make_label(nm, 15, ncol, 4, HORIZONTAL_ALIGNMENT_CENTER)
+			l.clip_text = true
+			l.custom_minimum_size = Vector2(104, 0)
+			chip.add_child(l)
+			quick_chips.add_child(chip)
+	if kind != "quick":
+		_quick_base = "CONNECTING"
+		quick_count.text = ""
+		quick_info.text = "Finding the game server..."
+		return
+	var cd: float = GameManager.quick_countdown
+	quick_count.text = "%d OF %d PLAYERS FOUND" % [humans, GameManager.MAX_PLAYERS]
+	if cd < 0.0:
+		_quick_base = "STARTING"
+		quick_info.text = "Get ready!"
+	elif humans >= GameManager.QUICK_ENOUGH:
+		_quick_base = "GAME FOUND"
+		quick_info.text = "Starting in %d..." % ceili(cd)
+	else:
+		_quick_base = "WAITING FOR MORE PLAYERS"
+		quick_info.text = "Taking too long? Bots will fill the empty spots in %ds." % ceili(cd)
+
+
+func _refresh_solo() -> void:
+	solo_bots_label.text = str(solo_bots)
+	bots_minus.disabled = solo_bots <= 1
+	bots_plus.disabled = solo_bots >= GameManager.MAX_PLAYERS - 1
+	for c in solo_list.get_children():
+		c.queue_free()
+	var nm := name_edit.text.strip_edges()
+	for s in solo_bots + 1:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.custom_minimum_size = Vector2(0, 34)
+		row.add_child(_ball_icon(GameManager.COLORS[s], 30.0))
+		var txt := ("P1  %s - YOU" % (nm if nm != "" else "Player")) if s == 0 else ("P%d  Bot %d" % [s + 1, s])
+		var lbl := UI.make_label(txt, 17, Color.WHITE if s == 0 else Color(1, 1, 1, 0.75), 4)
+		lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(lbl)
+		solo_list.add_child(row)
+
+
+func _refresh_room() -> void:
+	var kind: String = GameManager.session_kind
+	var online := GameManager.is_online
+	var host := online and GameManager.is_host()
 	for c in slots_box.get_children():
 		c.queue_free()
 	var by_slot := {}
 	for id in GameManager.players:
 		var info: Dictionary = GameManager.players[id]
 		by_slot[int(info["slot"])] = info
-	var kind: String = GameManager.session_kind
-	var in_room := kind == "room" or kind == "quick"
-	var humans := 0
-	for id in GameManager.players:
-		if not bool(GameManager.players[id]["is_bot"]):
-			humans += 1
-	var bots_left: int = maxi(GameManager.BOT_FILL_TO - maxi(humans, 1), 0) if bots_check.button_pressed and kind != "quick" else 0
-	if kind == "quick":
-		bots_left = maxi(GameManager.BOT_FILL_TO - maxi(humans, 1), 0)
+	var humans := _human_count()
+	var bots_left: int = maxi(GameManager.BOT_FILL_TO - maxi(humans, 1), 0) if bots_check.button_pressed else 0
 	for s in GameManager.MAX_PLAYERS:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
@@ -728,7 +1142,7 @@ func _refresh_lobby() -> void:
 			var info: Dictionary = by_slot[s]
 			var id: int = int(info["id"])
 			txt = "P%d  %s" % [s + 1, str(info["name"])]
-			if id == 1 and GameManager.is_online:
+			if id == 1:
 				txt += " (HOST)"
 			if id == GameManager.my_id():
 				txt += " - YOU"
@@ -736,43 +1150,26 @@ func _refresh_lobby() -> void:
 			var bot_here := bots_left > 0
 			if bot_here:
 				bots_left -= 1
-			txt = "P%d  %s" % [s + 1, "Bot (auto-fill)" if bot_here else ("Waiting for player..." if in_room else "Open slot")]
+			txt = "P%d  %s" % [s + 1, "Bot (auto-fill)" if bot_here else "Waiting for player..."]
 			col = Color(1, 1, 1, 0.45)
 		var lbl := UI.make_label(txt, 17, col, 4)
 		lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(lbl)
 		slots_box.add_child(row)
 
-	var online := GameManager.is_online
-	var host := online and GameManager.is_host()
-	match kind:
-		"room":
-			room_label.text = "PRIVATE ROOM - SHARE THIS CODE"
-			room_big.text = GameManager.room_code
-			room_big.visible = true
-		"quick":
-			room_label.text = "QUICK MATCH - FINDING PLAYERS"
-			var cd: float = GameManager.quick_countdown
-			room_big.text = ("STARTING IN %d" % ceili(cd)) if cd >= 0.0 else "STARTING..."
-			room_big.visible = true
-		"connecting":
-			room_label.text = "CONNECTING..."
-			room_big.visible = false
-		_:
-			room_label.text = "PLAYERS  -  UP TO 5"
-			room_big.visible = false
-	start_btn.visible = host and (kind == "room" or kind == "quick")
-	start_btn.text = "START NOW" if kind == "quick" else "START MATCH"
-	bots_check.visible = kind != "quick"
-	bots_check.disabled = online and not host
-	host_btn.disabled = online
-	join_btn.disabled = online
-	quick_btn.disabled = online
-	solo_btn.disabled = online
-	ip_edit.editable = not online and not _native_inputs
-	name_edit.editable = not online and not _native_inputs
-	leave_btn.visible = online
-	_refresh_rules_ui()
+	if kind == "room":
+		room_label.text = "ROOM CODE"
+		room_big.text = GameManager.room_code
+		room_hint.text = "Share this code with friends so they can join"
+	else:
+		room_label.text = "PRIVATE ROOM"
+		room_big.text = "CONNECTING..."
+		room_hint.text = "Getting your room ready"
+	start_btn.visible = host and kind == "room"
+	start_btn.disabled = kind != "room"
+	bots_check.disabled = not host
+	if online and not host and kind == "room" and room_status.text == "":
+		room_status.text = "Waiting for the host to start..."
 
 
 func _saved_name() -> String:
@@ -811,40 +1208,59 @@ func _draw_ball_icon(c: Control, col: Color) -> void:
 func _set_status(text: String) -> void:
 	if status_label != null:
 		status_label.text = text
+	if room_status != null:
+		room_status.text = text
 
 
 func _on_quick() -> void:
 	_remember_name()
+	_set_status("")
 	GameManager.quick_play(name_edit.text)
+	if GameManager.is_online:
+		_show_screen("quick")
 
 
 func _on_solo() -> void:
 	_remember_name()
-	GameManager.play_solo(name_edit.text)
+	_set_status("")
+	_show_screen("solo")
+
+
+func _on_bots_step(step: int) -> void:
+	solo_bots = clampi(solo_bots + step, 1, GameManager.MAX_PLAYERS - 1)
+	_refresh_lobby()
+
+
+func _on_solo_start() -> void:
+	_remember_name()
+	GameManager.play_solo(name_edit.text, solo_bots)
 
 
 func _on_host() -> void:
 	_remember_name()
+	_set_status("")
 	GameManager.create_room(name_edit.text)
+	if GameManager.is_online:
+		_show_screen("room")
 
 
 func _on_join() -> void:
 	_remember_name()
+	_set_status("")
 	GameManager.join_room(ip_edit.text, name_edit.text)
+	if GameManager.is_online:
+		_show_screen("room")
 
 
 func _on_start() -> void:
-	if GameManager.session_kind == "quick":
-		GameManager.quick_start_now()
-		return
 	GameManager.fill_with_bots = bots_check.button_pressed
 	GameManager.start_party_match(bots_check.button_pressed)
 
 
 func _on_leave() -> void:
 	GameManager.leave_session(false)
-	_set_status("You left the session.")
-	show_lobby()
+	_show_screen("home")
+	_set_status("")
 
 
 func _on_bots_toggled(on: bool) -> void:

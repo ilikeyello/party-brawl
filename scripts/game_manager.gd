@@ -14,13 +14,15 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
-const BUILD := "1.8 (battery saver)"
+const BUILD := "1.9 (new menus)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
 const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
 const RESULTS_TIME := 3.5
 const CONNECT_TIMEOUT := 6.0
-const QUICK_WAIT := 20.0         # seconds a quick match waits for more players
+const QUICK_WAIT := 30.0         # longest a quick match waits for players before bots fill in
+const QUICK_ENOUGH := 4          # with this many real players, start soon...
+const QUICK_ENOUGH_WAIT := 6.0   # ...after a short wait for one more
 const QUICK_FULL_WAIT := 3.0     # once 5 humans are in
 const DEFAULT_SERVER_URL := "wss://party-brawl.onrender.com/ws"
 const LOCAL_TEST_PORT := 8090
@@ -71,6 +73,7 @@ const GAME_INFO := {
 var players: Dictionary = {}
 var local_name: String = "Player"
 var fill_with_bots: bool = true
+var fill_target: int = BOT_FILL_TO   # bots fill up to this many players (solo lets you pick)
 var match_active: bool = false
 var round_index: int = 0
 var is_online: bool = false
@@ -286,6 +289,8 @@ func _process(delta: float) -> void:
 		var humans := _human_count()
 		if humans >= MAX_PLAYERS:
 			quick_countdown = minf(quick_countdown, QUICK_FULL_WAIT)
+		elif humans >= QUICK_ENOUGH:
+			quick_countdown = minf(quick_countdown, QUICK_ENOUGH_WAIT)
 		quick_countdown -= delta
 		var secs: int = ceili(maxf(quick_countdown, 0.0))
 		if secs != _last_quick_sync:
@@ -375,11 +380,12 @@ func _broadcast_players() -> void:
 
 # ---------------------------------------------------------------- sessions
 
-## Offline: you + bots, starts right away.
-func play_solo(player_name: String) -> void:
+## Offline: you + `bots` bots, starts right away.
+func play_solo(player_name: String, bots: int = BOT_FILL_TO - 1) -> void:
 	leave_session(false)
 	local_name = _clean_name(player_name)
 	session_kind = "solo"
+	fill_target = clampi(1 + bots, 2, MAX_PLAYERS)
 	_add_player(1, local_name, autotest, 0)
 	start_party_match(true)
 
@@ -405,6 +411,7 @@ func join_room(code: String, player_name: String) -> void:
 func _go_online(player_name: String, hello: Dictionary, status: String) -> void:
 	leave_session(false)
 	local_name = _clean_name(player_name)
+	fill_target = BOT_FILL_TO
 	hello["name"] = local_name
 	relay = RelayPeer.new()
 	relay.relay_event.connect(_on_relay_event)
@@ -718,7 +725,7 @@ func start_party_match(with_bots: bool) -> void:
 	_sanitize_rules()
 	_remove_bots()
 	if with_bots or players.size() < 2:
-		while players.size() < BOT_FILL_TO and _free_slot() >= 0:
+		while players.size() < fill_target and _free_slot() >= 0:
 			var slot := _free_slot()
 			_add_player(-(slot + 1), "BOT %d" % (slot + 1), true, slot)
 	quick_countdown = -1.0

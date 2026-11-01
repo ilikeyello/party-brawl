@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1793528574|2250455';
+const CACHE_VERSION = '1793565184|2167457';
 /** @type {string} */
 const CACHE_PREFIX = 'Party Brawl-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
