@@ -7,7 +7,9 @@ const PLAYER_SCENE := preload("res://scenes/player/party_player.tscn")
 const HUD_SCENE := preload("res://scenes/ui/mobile_hud.tscn")
 const UI := preload("res://scripts/ui_kit.gd")
 const STATES := ["intro", "running", "done"]
-const INTRO_TIME := 4.0
+const INTRO_TIME := 3.0          # the 3-2-1 countdown after everyone is ready
+const AFK_WAIT := 15.0           # once someone is ready, others get this long
+const MAX_READY_WAIT := 45.0     # absolute cap on the ready screen
 const END_DELAY := 1.8
 const SYNC_INTERVAL := 1.0 / 30.0
 const PLAYER_RADIUS := 24.0
@@ -27,6 +29,10 @@ var _auto_t: float = 0.0
 
 var state: String = "intro"
 var intro_left: float = INTRO_TIME
+var intro_phase: String = "ready"   # "ready" (waiting for READY presses) -> "count" (3-2-1)
+var ready_ids: Array = []
+var ready_wait: float = -1.0        # AFK countdown, starts when the first player is ready
+var _ready_total: float = 0.0
 var time_left: float = 25.0
 var elapsed: float = 0.0
 var players: Dictionary = {}          # id -> party_player node
@@ -132,7 +138,14 @@ func _send_local_input() -> void:
 
 
 func _server_tick(delta: float) -> void:
-	if state == "intro":
+	if state == "intro" and intro_phase == "ready":
+		_ready_total += delta
+		if ready_wait >= 0.0:
+			ready_wait = maxf(ready_wait - delta, 0.0)
+		if _all_humans_ready() or ready_wait == 0.0 or _ready_total >= MAX_READY_WAIT:
+			intro_phase = "count"
+			intro_left = INTRO_TIME
+	elif state == "intro":
 		intro_left -= delta
 		if intro_left <= 0.0:
 			intro_left = 0.0
@@ -337,6 +350,9 @@ func _build_state() -> Dictionary:
 		"st": STATES.find(state),
 		"t": time_left,
 		"i": intro_left,
+		"ip": intro_phase,
+		"rd": ready_ids,
+		"rw": ready_wait,
 		"h": _hit_count,
 		"hp": _last_hit_pos,
 		"p": ps,
@@ -352,6 +368,9 @@ func apply_state(s: Dictionary) -> void:
 	state = STATES[clampi(st, 0, STATES.size() - 1)]
 	time_left = float(s.get("t", time_left))
 	intro_left = float(s.get("i", intro_left))
+	intro_phase = str(s.get("ip", intro_phase))
+	ready_ids = s.get("rd", ready_ids)
+	ready_wait = float(s.get("rw", ready_wait))
 	var ps: Dictionary = s.get("p", {})
 	for id in ps:
 		if players.has(id):
@@ -471,6 +490,33 @@ func build_arena() -> void:
 
 func configure_player(_p) -> void:
 	pass
+
+
+## Ready screen -------------------------------------------------------------
+
+func human_ids() -> Array:
+	var out: Array = []
+	for id in player_order:
+		if GameManager.players.has(id) and not bool(GameManager.players[id]["is_bot"]):
+			out.append(id)
+	return out
+
+
+func _all_humans_ready() -> bool:
+	for id in human_ids():
+		if not ready_ids.has(id):
+			return false
+	return true
+
+
+## Host: a player pressed READY.
+func mark_ready(id: int) -> void:
+	if state != "intro" or intro_phase != "ready" or ready_ids.has(id) or not players.has(id):
+		return
+	ready_ids.append(id)
+	if ready_wait < 0.0:
+		ready_wait = AFK_WAIT
+	GameManager.send_state(_build_state())
 
 
 ## How many players are in this match (spawn layouts can adapt).

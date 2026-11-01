@@ -14,7 +14,7 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
-const BUILD := "1.3 (pac-maze)"
+const BUILD := "1.4 (ready-up)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
 const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
@@ -31,7 +31,7 @@ const GAME_INFO := {
 		"rules": "AIM. LOCK IN. LAUNCH!",
 		"help": "Each turn, aim where you want to slide and LOCK IN. Everyone launches at once on slippery ice - bump rivals off, but if they dodge you might slide off yourself! The ring shrinks every turn.",
 		"pc": "MOUSE: point where to slide (further = more power)   CLICK / SPACE: lock in   A/D + W/S: aim with keys",
-		"touch": "DRAG ANYWHERE and PULL BACK like a slingshot (longer pull = harder)   then tap LOCK IN",
+		"touch": "DRAG ANYWHERE the way you want to slide (longer drag = harder). KEEP HOLDING and tap LOCK IN with your other thumb",
 	},
 	"bomb_tag": {
 		"title": "BOMB TAG",
@@ -494,6 +494,21 @@ func sync_session(kind: String, code: String, countdown: float) -> void:
 	room_code = code
 	quick_countdown = countdown
 	session_changed.emit()
+
+
+## This player pressed READY on the instructions screen.
+func press_ready() -> void:
+	if is_host():
+		if current_minigame != null and is_instance_valid(current_minigame):
+			current_minigame.mark_ready(my_id())
+	elif is_online:
+		rpc_ready.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_ready() -> void:
+	if is_host() and current_minigame != null and is_instance_valid(current_minigame):
+		current_minigame.mark_ready(multiplayer.get_remote_sender_id())
 
 
 ## Host: start the quick match now instead of waiting.

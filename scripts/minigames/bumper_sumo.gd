@@ -65,7 +65,7 @@ func _init() -> void:
 	knock_strength = 550.0
 	elim_style = "fall"
 	camera_center = CENTER
-	key_hint = "MOUSE: point where to slide (further = harder)     CLICK / SPACE: lock in     A/D turn  W/S power"
+	key_hint = "MOUSE: point the way to slide (further = harder)     CLICK / SPACE: lock in     A/D turn  W/S power"
 
 
 func build_arena() -> void:
@@ -425,16 +425,20 @@ func local_input(delta: float) -> Dictionary:
 	if GameManager.touch_mode:
 		hud.free_aim = true
 		if hud.free_active:
-			# Slingshot: drag anywhere and pull back. The ball goes the opposite way;
-			# a longer pull means more power. Letting go keeps the aim.
-			var pull: Vector2 = hud.free_start - hud.free_pos
-			var plen: float = pull.length()
-			if plen > 14.0:
-				_local_aim_dir = pull / plen
-				# Pull length maps straight to slide distance (so the arrow grows evenly).
-				var k: float = clampf((plen - 30.0) / (SLING_FULL - 30.0), 0.0, 1.0)
-				_local_aim_power = 0.0 if plen < 30.0 else power_for_travel(maxf(k, 0.04) * travel_for_power(1.0))
+			# Drag anywhere like a joystick: the arrow points the way you drag and grows
+			# with the drag. Hold it and tap LOCK IN with your other thumb.
+			var drag: Vector2 = hud.free_pos - hud.free_start
+			var dlen: float = drag.length()
+			if dlen > 14.0:
+				_local_aim_dir = drag / dlen
+				# Drag length maps straight to slide distance (so the arrow grows evenly).
+				var k: float = clampf((dlen - 24.0) / (SLING_FULL - 24.0), 0.0, 1.0)
+				_local_aim_power = 0.0 if dlen < 24.0 else power_for_travel(maxf(k, 0.04) * travel_for_power(1.0))
 				_aim_touched = true
+		elif _local_aim_power > 0.0:
+			# Let go = the arrow resets (you'll stay put unless you aim again).
+			_local_aim_power = 0.0
+			_aim_touched = true
 	else:
 		var mpos: Vector2 = get_global_mouse_position()
 		if _last_mouse != Vector2.INF and mpos.distance_to(_last_mouse) > 1.0:
@@ -607,34 +611,20 @@ func _draw_aims() -> void:
 		aim_layer.draw_string(font, mp - Vector2(80, 0), "PRESS LOCK IN", HORIZONTAL_ALIGNMENT_CENTER, 160, 14, Color("#2ECC71"))
 
 
-func _draw_arrow(from: Vector2, dir: Vector2, power: float, col: Color, show_landing: bool) -> void:
+func _draw_arrow(from: Vector2, dir: Vector2, power: float, col: Color, _show_landing: bool) -> void:
 	if power <= 0.01:
 		# Bracing: a small shield ring
 		aim_layer.draw_arc(from, 34.0, 0.0, TAU, 32, Color(1, 1, 1, 0.75), 3.0, true)
 		return
 	var d := dir.normalized()
-	var travel: float = travel_for_power(power)
-	var end: Vector2 = from + d * travel
-	# Dotted predicted slide path
-	var steps: int = maxi(int(travel / 18.0), 1)
-	for i in steps:
-		var t0: float = float(i) / float(steps)
-		var pt: Vector2 = from + d * travel * t0
-		if t0 > 0.12:
-			aim_layer.draw_circle(pt, 3.5, Color(1, 1, 1, 0.55))
-	if show_landing:
-		var off_edge: bool = end.distance_to(CENTER) > arena_radius + FALL_MARGIN
-		var lc := Color("#FF4D6D") if off_edge else Color(1, 1, 1, 0.8)
-		aim_layer.draw_arc(end, 20.0, 0.0, TAU, 28, lc, 3.0, true)
-		if off_edge:
-			aim_layer.draw_line(end + Vector2(-9, -9), end + Vector2(9, 9), lc, 3.0)
-			aim_layer.draw_line(end + Vector2(9, -9), end + Vector2(-9, 9), lc, 3.0)
-	# Main arrow (length shows power)
-	var alen: float = 36.0 + power * 70.0
+	# No landing marker on purpose: you only see direction + how big the arrow is.
+	var frac: float = clampf(travel_for_power(power) / travel_for_power(1.0), 0.0, 1.0)
+	var alen: float = 44.0 + frac * 150.0
 	var tip: Vector2 = from + d * alen
 	var side := Vector2(-d.y, d.x)
-	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, Color(0, 0, 0, 0.4), 11.0)
-	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, col, 7.0)
+	var w: float = 6.0 + frac * 6.0
+	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, Color(0, 0, 0, 0.4), w + 4.0)
+	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, col, w)
 	var head := PackedVector2Array([tip + d * 6.0, tip - d * 14.0 + side * 13.0, tip - d * 14.0 - side * 13.0])
 	aim_layer.draw_colored_polygon(head, col)
 	aim_layer.draw_polyline(PackedVector2Array([head[0], head[1], head[2], head[0]]), Color.WHITE, 2.0, true)

@@ -262,6 +262,7 @@ func _build_rotate_hint() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_update_intro()
 	if rotate_hint != null:
 		var vs := get_viewport().get_visible_rect().size
 		rotate_hint.visible = GameManager.touch_mode and vs.y > vs.x * 1.15
@@ -275,6 +276,8 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var k := event as InputEventKey
+		if k.pressed and not k.echo and (k.physical_keycode == KEY_SPACE or k.physical_keycode == KEY_ENTER) and _intro_ready_btn != null and is_instance_valid(_intro_ready_btn) and _intro_ready_btn.visible:
+			_on_intro_ready()
 		if k.pressed and not k.echo and k.physical_keycode == KEY_ESCAPE and current_game != null:
 			GameManager.return_to_lobby()
 
@@ -332,7 +335,7 @@ func _build_lobby() -> void:
 	name_edit.text = _saved_name()
 	name_edit.max_length = 12
 	name_edit.placeholder_text = "Enter your name"
-	name_edit.focus_entered.connect(_native_text_input.bind(name_edit, "Your name (max 12 letters):"))
+	_setup_native_input(name_edit, "Your name (max 12 letters):")
 	lv.add_child(name_edit)
 
 	quick_btn = UI.make_button("QUICK PLAY ONLINE", Color("#2ECC71"), 24)
@@ -358,7 +361,7 @@ func _build_lobby() -> void:
 	ip_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ip_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ip_edit.text_submitted.connect(func(_text): _on_join())
-	ip_edit.focus_entered.connect(_native_text_input.bind(ip_edit, "Room code (4 letters):"))
+	_setup_native_input(ip_edit, "Room code (4 letters):")
 	join_row.add_child(ip_edit)
 	join_btn = UI.make_button("JOIN", Color("#9B5DE5"), 19)
 	join_btn.pressed.connect(_on_join)
@@ -470,24 +473,58 @@ func _build_lobby() -> void:
 
 ## On phones in the browser, use the phone's own text box instead of the game's
 ## (the browser keyboard resizes the page and makes the game jump around).
-func _native_text_input(edit: LineEdit, question: String) -> void:
-	if not OS.has_feature("web") or not GameManager.touch_mode:
+var _native_inputs := false
+var _prompt_block_until := 0
+var _prompt_open := false
+
+
+func _setup_native_input(edit: LineEdit, question: String) -> void:
+	if not (OS.has_feature("web") and GameManager.is_touch_device()):
 		return
-	edit.release_focus()
+	_native_inputs = true
+	edit.editable = false
+	edit.focus_mode = Control.FOCUS_NONE
+	edit.mouse_filter = Control.MOUSE_FILTER_STOP
+	edit.gui_input.connect(_on_native_input_tap.bind(edit, question))
+	# Keep it looking like a normal text box (not greyed out).
+	edit.add_theme_color_override("font_uneditable_color", Color.WHITE)
+	edit.add_theme_stylebox_override("read_only", UI.box(Color("#1a1736"), 10, Color("#4b4690"), 2))
+
+
+func _on_native_input_tap(event: InputEvent, edit: LineEdit, question: String) -> void:
+	var released := false
+	if event is InputEventScreenTouch and not (event as InputEventScreenTouch).pressed:
+		released = true
+	elif event is InputEventMouseButton and not (event as InputEventMouseButton).pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		released = true
+	if not released or _prompt_open or GameManager.is_online or Time.get_ticks_msec() < _prompt_block_until:
+		return
+	edit.accept_event()
+	_prompt_open = true
+	# Run after this input event is fully handled, so the dialog can't re-trigger itself.
+	_open_native_prompt.call_deferred(edit, question)
+
+
+func _open_native_prompt(edit: LineEdit, question: String) -> void:
 	var cur := ""
 	for ch in edit.text:
 		if ch.is_valid_identifier() or ch == " " or ch.is_valid_int():
 			cur += ch
-	var answer = JavaScriptBridge.eval("(function(){ var r = window.prompt('%s', '%s'); return r === null ? '__cancel__' : r; })()" % [question.replace("'", ""), cur], true)
-	if typeof(answer) == TYPE_STRING and str(answer) != "__cancel__":
-		var t := str(answer).strip_edges().substr(0, edit.max_length if edit.max_length > 0 else 12)
-		if edit == ip_edit:
-			t = t.to_upper()
-		edit.text = t
-		if edit == name_edit:
-			_remember_name()
-		elif t.length() == 4:
-			_on_join()
+	var js := "(function(){ var r = window.prompt(%s, %s); return (r === null) ? '__cancel__' : String(r); })()" % [JSON.stringify(question), JSON.stringify(cur)]
+	var answer = JavaScriptBridge.eval(js, true)
+	_prompt_open = false
+	# Ignore any taps for a moment (the tap that closed the dialog can arrive late).
+	_prompt_block_until = Time.get_ticks_msec() + 800
+	if typeof(answer) != TYPE_STRING or str(answer) == "__cancel__":
+		return
+	var t := str(answer).strip_edges().substr(0, edit.max_length if edit.max_length > 0 else 12)
+	if edit == ip_edit:
+		t = t.to_upper()
+	edit.text = t
+	if edit == name_edit:
+		_remember_name()
+	elif t.length() == 4:
+		_on_join()
 
 
 func _toggle_fullscreen() -> void:
@@ -669,8 +706,8 @@ func _refresh_lobby() -> void:
 	join_btn.disabled = online
 	quick_btn.disabled = online
 	solo_btn.disabled = online
-	ip_edit.editable = not online
-	name_edit.editable = not online
+	ip_edit.editable = not online and not _native_inputs
+	name_edit.editable = not online and not _native_inputs
 	leave_btn.visible = online
 	_refresh_rules_ui()
 
@@ -837,20 +874,119 @@ func _show_intro(index: int, game_id: String) -> void:
 	ctl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ctl.custom_minimum_size = Vector2(900, 0)
 	v.add_child(ctl)
-	var count := UI.make_label("GET READY", 100, Color("#FF4D6D"), 18, HORIZONTAL_ALIGNMENT_CENTER)
-	count.custom_minimum_size = Vector2(0, 140)
-	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	v.add_child(count)
+	# Who's ready
+	_intro_chips = HBoxContainer.new()
+	_intro_chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	_intro_chips.add_theme_constant_override("separation", 10)
+	v.add_child(_intro_chips)
+	# READY button / status / big countdown
+	_intro_ready_btn = UI.make_button("READY!", Color("#2ECC71"), 34)
+	_intro_ready_btn.custom_minimum_size = Vector2(300, 74)
+	_intro_ready_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_intro_ready_btn.pressed.connect(_on_intro_ready)
+	v.add_child(_intro_ready_btn)
+	_intro_status = UI.make_label("", 20, Color("#c8c3ff"), 5, HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(_intro_status)
+	_intro_count = UI.make_label("", 100, Color("#FF4D6D"), 18, HORIZONTAL_ALIGNMENT_CENTER)
+	_intro_count.custom_minimum_size = Vector2(0, 120)
+	_intro_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_intro_count.visible = false
+	v.add_child(_intro_count)
+	_intro_root = root
+	_intro_dim = dim
+	_intro_done = false
+	_intro_last_num = -1
+	_i_pressed_ready = false
+	if GameManager.autotest:
+		get_tree().create_timer(1.0).timeout.connect(_on_intro_ready)
 
-	var tw := root.create_tween()
-	tw.tween_interval(1.0)
-	for txt in ["3", "2", "1"]:
-		tw.tween_callback(_pop_count.bind(count, str(txt), Color("#FF4D6D")))
-		tw.tween_interval(1.0)
-	tw.tween_callback(_pop_count.bind(count, "GO!", Color("#2ECC71")))
-	tw.tween_property(dim, "color:a", 0.0, 0.2)
-	tw.tween_property(root, "modulate:a", 0.0, 0.45)
-	tw.tween_callback(root.queue_free)
+
+var _intro_root: Control
+var _intro_dim: ColorRect
+var _intro_chips: HBoxContainer
+var _intro_ready_btn: Button
+var _intro_status: Label
+var _intro_count: Label
+var _intro_done := false
+var _intro_last_num := -1
+var _i_pressed_ready := false
+var _chip_sig := ""
+
+
+func _on_intro_ready() -> void:
+	if _i_pressed_ready:
+		return
+	_i_pressed_ready = true
+	GameManager.press_ready()
+
+
+## Keeps the instructions/ready screen in sync with the minigame's ready state.
+func _update_intro() -> void:
+	if _intro_root == null or not is_instance_valid(_intro_root) or _intro_done:
+		return
+	var g = current_game
+	if g == null or not is_instance_valid(g):
+		return
+	var me := GameManager.my_id()
+	var i_am_ready: bool = _i_pressed_ready or g.ready_ids.has(me)
+	# Player chips
+	var sig := str(g.ready_ids) + str(GameManager.players.size())
+	if sig != _chip_sig:
+		_chip_sig = sig
+		for c in _intro_chips.get_children():
+			c.queue_free()
+		for id in g.player_order:
+			if not GameManager.players.has(id):
+				continue
+			var info: Dictionary = GameManager.players[id]
+			var bot: bool = bool(info["is_bot"])
+			var rdy: bool = bot or g.ready_ids.has(id)
+			var chip := PanelContainer.new()
+			var pc: Color = info["color"]
+			var sb := UI.box(Color(pc.darkened(0.55), 0.95) if rdy else Color(0.1, 0.1, 0.18, 0.9), 12, pc if rdy else Color(1, 1, 1, 0.25), 3)
+			sb.content_margin_top = 4
+			sb.content_margin_bottom = 4
+			chip.add_theme_stylebox_override("panel", sb)
+			var nm := str(info["name"])
+			if nm.length() > 10:
+				nm = nm.substr(0, 10)
+			var tag := "BOT" if bot else ("READY" if rdy else "...")
+			chip.add_child(UI.make_label("%s  %s" % [nm, tag], 18, Color.WHITE if rdy else Color(1, 1, 1, 0.6), 4))
+			_intro_chips.add_child(chip)
+	if g.state == "intro" and g.intro_phase == "ready":
+		_intro_ready_btn.visible = not i_am_ready
+		var waiting := 0
+		for id in g.human_ids():
+			if not g.ready_ids.has(id):
+				waiting += 1
+		if i_am_ready:
+			if g.ready_wait >= 0.0 and waiting > 0:
+				_intro_status.text = "Waiting for %d player%s...  starting in %d" % [waiting, "" if waiting == 1 else "s", ceili(g.ready_wait)]
+			else:
+				_intro_status.text = "Waiting for players..."
+		else:
+			if g.ready_wait >= 0.0:
+				_intro_status.text = "Press READY!  Starting in %d" % ceili(g.ready_wait)
+			else:
+				_intro_status.text = "Read the rules, then press READY (or SPACE)"
+	else:
+		_intro_ready_btn.visible = false
+		_intro_status.text = ""
+		_intro_count.visible = true
+		if g.state == "intro":
+			var n: int = maxi(ceili(g.intro_left), 1)
+			if n != _intro_last_num:
+				_intro_last_num = n
+				_pop_count(_intro_count, str(n), Color("#FF4D6D"))
+		else:
+			_intro_done = true
+			_pop_count(_intro_count, "GO!", Color("#2ECC71"))
+			var root := _intro_root
+			var tw := root.create_tween()
+			tw.tween_interval(0.35)
+			tw.tween_property(_intro_dim, "color:a", 0.0, 0.2)
+			tw.tween_property(root, "modulate:a", 0.0, 0.4)
+			tw.tween_callback(root.queue_free)
 
 
 func _pop_count(label: Label, txt: String, col: Color) -> void:

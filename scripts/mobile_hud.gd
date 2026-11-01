@@ -416,7 +416,7 @@ func _draw_action_button() -> void:
 func _draw_sling() -> void:
 	var font: Font = UI.title_font()
 	if free_active:
-		var pull := free_start - free_pos
+		var pull := free_pos - free_start
 		pad.draw_circle(free_start, 26.0, Color(1, 1, 1, 0.15))
 		pad.draw_arc(free_start, 26.0, 0.0, TAU, 32, Color(1, 1, 1, 0.6), 3.0, true)
 		pad.draw_line(free_start, free_pos, Color(1, 1, 1, 0.55), 6.0, true)
@@ -427,6 +427,6 @@ func _draw_sling() -> void:
 		pad.draw_string(font, free_pos + Vector2(-50, -30), txt, HORIZONTAL_ALIGNMENT_CENTER, 100, 20, Color.WHITE)
 	else:
 		var s := _vp_size()
-		var t := "DRAG + PULL BACK TO AIM"
+		var t := "DRAG TO AIM - KEEP HOLDING + TAP LOCK IN"
 		pad.draw_string_outline(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, Color(0, 0, 0, 0.7))
 		pad.draw_string(font, Vector2(20, s.y - 40), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.8))
