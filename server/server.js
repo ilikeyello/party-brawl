@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: countPlayers() }));
     return;
   }
-  let file = path.normalize(path.join(PUBLIC_DIR, urlPath === "/" ? "index.html" : urlPath));
+  let file = path.normalize(path.join(PUBLIC_DIR, urlPath === "/" ? startPage() : urlPath));
   if (!file.startsWith(PUBLIC_DIR)) {
     res.writeHead(403);
     res.end();
@@ -61,9 +61,17 @@ const server = http.createServer((req, res) => {
       return;
     }
     const ext = path.extname(file).toLowerCase();
+    // Always revalidate, so players get a new build right after a deploy.
+    const etag = `"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { ETag: etag, "Cache-Control": "no-cache" });
+      res.end();
+      return;
+    }
     const headers = {
       "Content-Type": MIME[ext] || "application/octet-stream",
-      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
+      "Cache-Control": "no-cache",
+      ETag: etag,
       // Allows SharedArrayBuffer if a threaded export is ever used; harmless otherwise.
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp",
@@ -84,6 +92,11 @@ const server = http.createServer((req, res) => {
     fs.createReadStream(file).pipe(res);
   });
 });
+
+// The game page: game.html (newer builds) or index.html (older builds).
+function startPage() {
+  return fs.existsSync(path.join(PUBLIC_DIR, "game.html")) ? "game.html" : "index.html";
+}
 
 // The engine .wasm is ~40 MB; gzip makes it ~4x smaller. Compressed once, kept in memory.
 const COMPRESSIBLE = new Set([".wasm", ".js", ".pck", ".html"]);

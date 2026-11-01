@@ -223,7 +223,7 @@ func _export_web() -> void:
 	DirAccess.make_dir_recursive_absolute(proj.path_join("server/public"))
 	var out: Array = []
 	print("[EXPORT] exporting Web build...")
-	var code := OS.execute(exe, ["--headless", "--path", proj, "--export-release", "Web", proj.path_join("server/public/index.html")], out, true)
+	var code := OS.execute(exe, ["--headless", "--path", proj, "--export-release", "Web", proj.path_join("server/public/game.html")], out, true)
 	print("[EXPORT] exit code ", code)
 	for line in out:
 		for l in str(line).split("\n"):
@@ -457,6 +457,10 @@ func _build_lobby() -> void:
 		rv.add_child(gb)
 		game_btns[str(gid)] = gb
 
+	var ver := UI.make_label("v" + GameManager.BUILD, 13, Color(1, 1, 1, 0.35), 0)
+	lobby.add_child(ver)
+	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	ver.position = Vector2(10, -24)
 	controls_hint = UI.make_label("", 15, Color(1, 1, 1, 0.6), 4, HORIZONTAL_ALIGNMENT_CENTER)
 	col.add_child(controls_hint)
 	_update_controls_hint()

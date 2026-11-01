@@ -14,6 +14,7 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
+const BUILD := "1.2 (mobile)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
 const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
