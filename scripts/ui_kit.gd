@@ -129,6 +129,7 @@ static func make_button(text: String, col: Color, font_size: int = 22) -> Button
 	b.add_theme_stylebox_override("hover_pressed", pressed)
 	b.add_theme_stylebox_override("disabled", disabled)
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.pressed.connect(_button_sound)
 	b.add_theme_font_override("font", title_font())
 	b.add_theme_font_size_override("font_size", font_size)
 	b.add_theme_color_override("font_color", Color.WHITE)
@@ -139,6 +140,10 @@ static func make_button(text: String, col: Color, font_size: int = 22) -> Button
 	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 	b.add_theme_constant_override("outline_size", 6)
 	return b
+
+
+static func _button_sound() -> void:
+	Sfx.play("click", -4.0, 0.05)
 
 
 static func ellipse_points(c: Vector2, rx: float, ry: float, segments: int = 32) -> PackedVector2Array:

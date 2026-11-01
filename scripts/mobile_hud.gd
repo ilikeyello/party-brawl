@@ -143,6 +143,7 @@ func set_time(t: float) -> void:
 	var urgent := t <= 5.0 and t > 0.0
 	timer_label.label_settings.font_color = Color("#FF4D6D") if urgent else Color.WHITE
 	if urgent and secs != _last_secs:
+		Sfx.play("tick", -4.0)
 		timer_label.scale = Vector2(1.35, 1.35)
 		var tw := timer_label.create_tween()
 		tw.tween_property(timer_label, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

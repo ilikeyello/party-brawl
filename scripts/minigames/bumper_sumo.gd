@@ -50,6 +50,7 @@ var _bg_acc := 0.0
 var _plat_acc := 0.0
 var _drawn_radius := -1.0
 var _aim_drawn := false
+var _was_locked := false
 var _mouse_active := false
 var _last_mouse := Vector2.INF
 var _seen_phase: String = ""
@@ -109,6 +110,10 @@ func build_arena() -> void:
 	aim_layer.z_index = 8
 	add_child(aim_layer)
 	aim_layer.draw.connect(_draw_aims)
+
+
+func configure_player(p) -> void:
+	p.dash_sound = false
 
 
 func get_spawn_points() -> Array:
@@ -551,12 +556,18 @@ func client_process(delta: float) -> void:
 			hud.setup(game_title, "TURN %d: AIM, THEN LOCK IN" % turn)
 		elif phase == "reveal":
 			hud.show_center("LAUNCH!", Color("#FEE440"), 0.4)
+			Sfx.play("launch")
 			hud.setup(game_title, "TURN %d: WATCH OUT!" % turn)
 		elif phase == "shrink":
 			hud.setup(game_title, "THE ARENA SHRINKS...")
+			Sfx.play("shrink", -3.0)
 			add_shake(3.0)
 		_seen_phase = phase
 		_seen_turn = turn
+	var locked_now := _my_locked()
+	if locked_now and not _was_locked and phase == "aim":
+		Sfx.play("lock")
+	_was_locked = locked_now
 	var can_lock: bool = state == "running" and phase == "aim" and me != null and not me.is_eliminated and not _my_locked()
 	if can_lock:
 		hud.set_action("LOCK IN", Color("#2ECC71"))

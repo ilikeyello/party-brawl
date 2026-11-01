@@ -97,6 +97,7 @@ func _handle_command_line() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.has("--netclient"):
 		GameManager.autotest = true
+		AudioServer.set_bus_mute(0, true)
 		_shot_prefix = "client_"
 		_start_net_client()
 		return
@@ -105,6 +106,7 @@ func _handle_command_line() -> void:
 		return
 	if FileAccess.file_exists("res://autotest.txt"):
 		GameManager.autotest = true
+		AudioServer.set_bus_mute(0, true)   # self-tests run silently
 		_start_autotest()
 		return
 	if args.has("--solo"):
@@ -177,6 +179,14 @@ func _start_autotest() -> void:
 		return
 	Engine.time_scale = 2.0
 	print("[AUTOTEST] starting full bot match: ", GameManager.rules_summary())
+	var missing: Array = []
+	for n in Sfx.SFX:
+		if Sfx._streams.get(n) == null:
+			missing.append(n)
+	for k in Sfx.MUSIC:
+		if Sfx._streams.get("m_" + k) == null:
+			missing.append(k)
+	print("[AUTOTEST] audio loaded: %d sounds, missing: %s" % [Sfx._streams.size() - missing.size(), str(missing)])
 	GameManager.play_solo("AutoBot")
 
 
@@ -473,6 +483,18 @@ func _build_lobby() -> void:
 	lobby.add_child(ver)
 	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	ver.position = Vector2(10, -24)
+	audio_row = HBoxContainer.new()
+	audio_row.add_theme_constant_override("separation", 8)
+	lobby.add_child(audio_row)
+	music_btn = UI.make_button("", Color("#9B5DE5"), 15)
+	music_btn.pressed.connect(func(): Sfx.set_music_on(not Sfx.music_on))
+	audio_row.add_child(music_btn)
+	sound_btn = UI.make_button("", Color("#9B5DE5"), 15)
+	sound_btn.pressed.connect(func(): Sfx.set_sfx_on(not Sfx.sfx_on))
+	audio_row.add_child(sound_btn)
+	Sfx.settings_changed.connect(_update_audio_buttons)
+	GameManager.safe_insets_changed.connect(_update_audio_buttons)
+	_update_audio_buttons()
 	controls_hint = UI.make_label("", 15, Color(1, 1, 1, 0.6), 4, HORIZONTAL_ALIGNMENT_CENTER)
 	col.add_child(controls_hint)
 	_update_controls_hint()
@@ -532,6 +554,22 @@ func _open_native_prompt(edit: LineEdit, question: String) -> void:
 		_remember_name()
 	elif t.length() == 4:
 		_on_join()
+
+
+var audio_row: HBoxContainer
+var music_btn: Button
+var sound_btn: Button
+var _last_humans := 0
+
+
+func _update_audio_buttons() -> void:
+	if music_btn == null:
+		return
+	music_btn.text = "MUSIC: ON" if Sfx.music_on else "MUSIC: OFF"
+	sound_btn.text = "SOUND: ON" if Sfx.sfx_on else "SOUND: OFF"
+	music_btn.modulate.a = 1.0 if Sfx.music_on else 0.55
+	sound_btn.modulate.a = 1.0 if Sfx.sfx_on else 0.55
+	audio_row.position = Vector2(10.0 + GameManager.safe_insets.x, 10.0 + GameManager.safe_insets.y)
 
 
 func _toggle_fullscreen() -> void:
@@ -646,6 +684,13 @@ func _refresh_rules_ui() -> void:
 func _refresh_lobby() -> void:
 	if slots_box == null:
 		return
+	var hcount := 0
+	for pid in GameManager.players:
+		if not bool(GameManager.players[pid]["is_bot"]):
+			hcount += 1
+	if hcount > _last_humans and _last_humans > 0 and lobby.visible:
+		Sfx.play("join")
+	_last_humans = hcount
 	for c in slots_box.get_children():
 		c.queue_free()
 	var by_slot := {}
@@ -803,6 +848,7 @@ func _on_session_ended(reason: String) -> void:
 
 
 func show_lobby() -> void:
+	Sfx.music("lobby")
 	_clear_game()
 	_clear_overlay()
 	lobby.visible = true
@@ -824,6 +870,7 @@ func begin_round(index: int, game_id: String) -> void:
 	game_holder.add_child(game)
 	current_game = game
 	GameManager.current_minigame = game
+	Sfx.music(game_id)
 	_show_intro(index, game_id)
 
 
@@ -953,6 +1000,7 @@ func _on_intro_ready() -> void:
 	if _i_pressed_ready:
 		return
 	_i_pressed_ready = true
+	Sfx.play("ready")
 	GameManager.press_ready()
 
 
@@ -1014,9 +1062,11 @@ func _update_intro() -> void:
 			if n != _intro_last_num:
 				_intro_last_num = n
 				_pop_count(_intro_count, str(n), Color("#FF4D6D"))
+				Sfx.play("count")
 		else:
 			_intro_done = true
 			_pop_count(_intro_count, "GO!", Color("#2ECC71"))
+			Sfx.play("go")
 			var root := _intro_root
 			var tw := root.create_tween()
 			tw.tween_interval(0.35)
@@ -1056,6 +1106,7 @@ func _ordinal(n: int) -> String:
 
 func show_round_results(gains: Dictionary, info: Dictionary) -> void:
 	_clear_overlay()
+	Sfx.play("ding")
 	var root := Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(root)
@@ -1175,6 +1226,7 @@ func show_round_results(gains: Dictionary, info: Dictionary) -> void:
 # ---------------------------------------------------------------- podium
 
 func show_podium() -> void:
+	Sfx.fanfare_then("lobby")
 	_clear_game()
 	_clear_overlay()
 	lobby.visible = false

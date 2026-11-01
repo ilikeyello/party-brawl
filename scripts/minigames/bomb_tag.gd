@@ -59,6 +59,7 @@ var pu_timer: float = 2.5
 var powerups: Array = []           # [uid, type, cell_x, cell_y]
 var _pu_uid: int = 0
 var _last_fuse_sec: int = -1
+var _tick_sec: int = -1
 var _last_holder_seen: int = 0
 
 var open_cells: PackedByteArray = PackedByteArray()
@@ -617,6 +618,18 @@ func client_process(delta: float) -> void:
 			if holder_id == GameManager.my_id():
 				hud.show_center("YOU HAVE THE BOMB!", Color("#FF4D6D"), 0.6)
 		_last_holder_seen = holder_id
+	# Bomb fuse ticks every second (louder and higher in the last 5).
+	var hb = players.get(holder_id)
+	if hb != null and not hb.is_eliminated and state == "running":
+		var ts: int = ceili(fuse)
+		if ts != _tick_sec:
+			_tick_sec = ts
+			if ts <= 5:
+				Sfx.play("tick_hi", -1.0)
+			else:
+				Sfx.play("tick", -9.0)
+	else:
+		_tick_sec = -1
 	# Last 5 seconds of the fuse: pulse every second, and flash the holder's screen red.
 	var holder2 = players.get(holder_id)
 	if holder2 != null and not holder2.is_eliminated and fuse <= 5.0 and state == "running":

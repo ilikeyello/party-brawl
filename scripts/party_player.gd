@@ -67,6 +67,8 @@ var _anim_t: float = 0.0
 var _bob: float = 0.0
 var _scorched: bool = false
 var _bomb_pulse: float = 0.0
+var _was_dashing := false
+var dash_sound := true      # Sumo turns this off (it has its own launch sound)
 
 
 func setup(id: int, info: Dictionary, style: String) -> void:
@@ -292,6 +294,10 @@ func _process(delta: float) -> void:
 	var speed := v.length()
 	_bob = absf(sin(_anim_t * 14.0)) * 4.0 * clampf(speed / BASE_SPEED, 0.0, 1.0)
 	trail.emitting = is_dashing or (boost_timer > 0.0 and speed > 60.0)
+	if is_dashing and not _was_dashing and dash_sound:
+		var mine: bool = peer_id == GameManager.my_id()
+		Sfx.play("dash", -2.0 if mine else -11.0, 0.1, 30)
+	_was_dashing = is_dashing
 
 	# Perspective: things lower on screen are "closer" and slightly bigger.
 	var depth_scale: float = lerpf(0.92, 1.06, clampf(position.y / 720.0, 0.0, 1.0))

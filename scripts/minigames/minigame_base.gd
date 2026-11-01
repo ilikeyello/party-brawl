@@ -13,6 +13,9 @@ const MAX_READY_WAIT := 45.0     # absolute cap on the ready screen
 const END_DELAY := 1.8
 const SYNC_INTERVAL := 1.0 / 30.0
 const PLAYER_RADIUS := 24.0
+const EVENT_SOUNDS := {
+	"TAG!": "tag", "FREEZE!": "freeze", "WARP!": "warp", "SPLAT!": "splat", "ERASER BOT!": "eraser",
+}
 
 # Set these in a subclass _init()
 var game_id: String = ""
@@ -202,15 +205,19 @@ func _check_events() -> void:
 		if p.is_eliminated and not _seen_elim.has(id):
 			_seen_elim[id] = true
 			if elim_style == "explode":
+				Sfx.play("explosion", 0.0, 0.05)
 				add_shake(14.0)
 				hud.flash(Color(1.0, 0.65, 0.25, 0.5))
 				spawn_ring(p.position + Vector2(0, -12), Color(1.0, 0.6, 0.2), 170.0, 0.45)
 			else:
+				Sfx.play("fall", -2.0, 0.08)
 				add_shake(6.0)
 			if int(id) == GameManager.my_id() and state == "running":
 				hud.show_center("YOU'RE OUT!", Color("#FF4D6D"), 1.2)
+				get_tree().create_timer(0.7).timeout.connect(func(): Sfx.play("out", -3.0))
 	if _hit_count != _seen_hits:
 		_seen_hits = _hit_count
+		Sfx.play("hit", 0.0, 0.12, 60)
 		add_shake(7.0)
 		spawn_burst(_last_hit_pos, Color("#FFF3B0"), 14, 300.0, 7.0, 0.35)
 		spawn_ring(_last_hit_pos, Color(1, 1, 1), 60.0, 0.25)
@@ -219,6 +226,7 @@ func _check_events() -> void:
 		if n > _ev_seen:
 			_ev_seen = n
 			_float_text(ev[1], str(ev[2]), ev[3])
+			Sfx.play(EVENT_SOUNDS.get(str(ev[2]), "powerup"), -1.0, 0.04)
 			spawn_burst(ev[1] + Vector2(0, 30), ev[3], 18, 240.0, 7.0, 0.45)
 			if str(ev[2]) == "FREEZE!":
 				hud.flash(Color(0.6, 0.9, 1.0, 0.35))

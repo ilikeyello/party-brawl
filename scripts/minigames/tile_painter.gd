@@ -445,6 +445,7 @@ func client_process(delta: float) -> void:
 	if frenzy and not _frenzy_shown and state == "running":
 		_frenzy_shown = true
 		hud.show_center("FRENZY!", Color("#FF4D6D"), 0.9)
+		Sfx.play("frenzy")
 		hud.flash(Color(1.0, 0.3, 0.6, 0.3))
 		add_shake(6.0)
 	if eraser_active and not _eraser_shown:
