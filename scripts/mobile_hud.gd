@@ -28,6 +28,9 @@ var _knob: Vector2 = Vector2.ZERO
 var _joy_origin: Vector2 = Vector2.ZERO
 ## Sumo: touches outside the joystick corner aim directly (touch where you want to slide).
 var free_aim: bool = false
+## Hold mode (Balloon Pump): touching anywhere on the screen holds the action button.
+var hold_mode: bool = false
+var hold_hint: String = "HOLD ANYWHERE"
 var free_active: bool = false
 var free_pos: Vector2 = Vector2.ZERO
 var free_start: Vector2 = Vector2.ZERO
@@ -271,7 +274,11 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
-			if _btn_touch == -1 and st.position.distance_to(btn_center()) <= BUTTON_SIZE * 0.8:
+			if hold_mode and _btn_touch == -1:
+				_btn_touch = st.index
+				action_held = true
+				_latched = true
+			elif _btn_touch == -1 and st.position.distance_to(btn_center()) <= BUTTON_SIZE * 0.8:
 				_btn_touch = st.index
 				action_held = true
 				_latched = true
@@ -366,6 +373,14 @@ func _draw_pad() -> void:
 		return
 	if free_aim:
 		_draw_sling()
+		_draw_action_button()
+		return
+	if hold_mode:
+		var hs := _vp_size()
+		var hf: Font = UI.title_font()
+		var hp := Vector2(20.0 + GameManager.safe_insets.x, hs.y - 40.0 - GameManager.safe_insets.w)
+		pad.draw_string_outline(hf, hp, hold_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0, 0, 0, 0.7))
+		pad.draw_string(hf, hp, hold_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.85))
 		_draw_action_button()
 		return
 	# Joystick base

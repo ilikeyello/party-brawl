@@ -240,7 +240,7 @@ func _check_events() -> void:
 		if n > _ev_seen:
 			_ev_seen = n
 			_float_text(ev[1], str(ev[2]), ev[3])
-			Sfx.play(EVENT_SOUNDS.get(str(ev[2]), "powerup"), -1.0, 0.04)
+			Sfx.play(event_sound(str(ev[2])), -1.0, 0.04)
 			spawn_burst(ev[1] + Vector2(0, 30), ev[3], 18, 240.0, 7.0, 0.45)
 			if str(ev[2]) == "FREEZE!":
 				hud.flash(Color(0.6, 0.9, 1.0, 0.35))
@@ -588,6 +588,11 @@ func get_extra_state() -> Dictionary:
 
 func apply_extra_state(_m: Dictionary) -> void:
 	pass
+
+
+## Which sound a floating-text event plays.
+func event_sound(text: String) -> String:
+	return EVENT_SOUNDS.get(text, "powerup")
 
 
 func get_bot_command(_p, _delta: float) -> Dictionary:

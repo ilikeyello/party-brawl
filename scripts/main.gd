@@ -9,6 +9,10 @@ const MINIGAMES := {
 	"bumper_sumo": preload("res://scenes/minigames/bumper_sumo.tscn"),
 	"bomb_tag": preload("res://scenes/minigames/bomb_tag.tscn"),
 	"tile_painter": preload("res://scenes/minigames/tile_painter.tscn"),
+	"falling_floor": preload("res://scenes/minigames/falling_floor.tscn"),
+	"light_trails": preload("res://scenes/minigames/light_trails.tscn"),
+	"balloon_pump": preload("res://scenes/minigames/balloon_pump.tscn"),
+	"gem_heist": preload("res://scenes/minigames/gem_heist.tscn"),
 }
 const PEDESTAL_HEIGHTS := [190.0, 140.0, 100.0, 64.0, 40.0]
 
@@ -116,6 +120,7 @@ func _handle_command_line() -> void:
 var _shot_n: int = 0
 var _shot_prefix: String = "shot_"
 var _auto_speed: float = 2.0
+var _auto_bots: int = 3
 var _shot_timer: Timer
 
 
@@ -155,6 +160,8 @@ func _start_autotest() -> void:
 					net = kv[1]
 				"speed":
 					_auto_speed = float(kv[1])
+				"bots":
+					_auto_bots = clampi(int(kv[1]), 1, 4)
 				"ui":
 					net = "ui"
 	GameManager.set_rules(r)
@@ -197,7 +204,7 @@ func _start_autotest() -> void:
 		if Sfx._streams.get("m_" + k) == null:
 			missing.append(k)
 	print("[AUTOTEST] audio loaded: %d sounds, missing: %s" % [Sfx._streams.size() - missing.size(), str(missing)])
-	GameManager.play_solo("AutoBot")
+	GameManager.play_solo("AutoBot", _auto_bots)
 
 
 ## Autotest "ui=1": visits every menu screen (big window, then a phone-shaped one) and saves screenshots.
@@ -713,11 +720,21 @@ func _build_rules_panel() -> PanelContainer:
 
 	games_title = UI.make_label("GAMES IN THE MIX", 15, Color("#9d97d8"))
 	rv.add_child(games_title)
-	var game_cols := {"bumper_sumo": Color("#FF4D6D"), "bomb_tag": Color("#e07a1f"), "tile_painter": Color("#00b89c")}
+	var game_cols := {
+		"bumper_sumo": Color("#FF4D6D"), "bomb_tag": Color("#e07a1f"), "tile_painter": Color("#00b89c"),
+		"falling_floor": Color("#c2410c"), "light_trails": Color("#0096c7"), "balloon_pump": Color("#d63384"),
+		"gem_heist": Color("#7b2cbf"),
+	}
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	rv.add_child(grid)
 	for gid in GameManager.ROUNDS_PLAYLIST:
-		var gb := UI.make_button(str(GameManager.GAME_INFO[gid]["title"]), game_cols.get(gid, Color("#3a86ff")), 18)
+		var gb := UI.make_button(str(GameManager.GAME_INFO[gid]["title"]), game_cols.get(gid, Color("#3a86ff")), 16)
+		gb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		gb.pressed.connect(_on_game_pressed.bind(str(gid)))
-		rv.add_child(gb)
+		grid.add_child(gb)
 		game_btns[str(gid)] = gb
 	return right
 

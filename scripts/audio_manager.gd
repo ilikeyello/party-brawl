@@ -8,11 +8,12 @@ extends Node
 const SFX := [
 	"click", "ready", "count", "go", "join", "dash", "hit", "fall", "launch", "lock", "shrink",
 	"tick", "tick_hi", "explosion", "tag", "powerup", "freeze", "warp", "splat", "frenzy",
-	"eraser", "ding", "out",
+	"eraser", "ding", "out", "crack", "pop", "pump", "gem", "bank",
 ]
 const MUSIC := {
 	"lobby": "music_lobby", "bumper_sumo": "music_sumo", "bomb_tag": "music_bomb",
-	"tile_painter": "music_paint", "fanfare": "fanfare",
+	"tile_painter": "music_paint", "falling_floor": "music_floor", "light_trails": "music_trails",
+	"balloon_pump": "music_balloon", "gem_heist": "music_heist", "fanfare": "fanfare",
 }
 const MUSIC_DB := -9.0
 const VOICES := 10

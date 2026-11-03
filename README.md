@@ -1,7 +1,7 @@
 # Party Brawl
 
 An arcade party game for up to 5 players, built with Godot 4.7. It runs in the browser on phones, tablets and PCs, as well as on desktop.
-Minigames: **Bumper Sumo**, **Bomb Tag**, **Tile Painter**.
+Minigames: **Bumper Sumo**, **Bomb Tag**, **Tile Painter**, **Falling Floor**, **Light Trails**, **Balloon Pump**, **Gem Heist**.
 
 ## Ways to play
 - **Quick Play Online**: matches you with other people searching right now (up to 5 per game).
@@ -23,7 +23,7 @@ On-screen controls only appear on touch devices (or once you touch the screen).
 - `scripts/net/relay_peer.gd` runs Godot multiplayer over a WebSocket relay, so it works in browsers
 - `scripts/net/local_relay_server.gd` is an in-game copy of the server, used for local testing
 - `scripts/main.gd` builds the lobby, round intro, results and podium
-- `scripts/minigames/*.gd` holds the three games plus shared base logic
+- `scripts/minigames/*.gd` holds the seven games plus shared base logic
 - `server/` is the Node.js relay and matchmaking server, which also hosts the web build
 - `fonts/` holds Lilita One and Fredoka (SIL Open Font License)
 

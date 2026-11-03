@@ -343,6 +343,102 @@ def song_paint():
     return s.render(0.72)
 
 
+def song_floor():
+    """Urgent, rumbly. E minor, 136 BPM, 16 bars. Low toms + driving bass."""
+    s = Song(136, 16)
+    prog = [(40, "min"), (36, "maj"), (38, "maj"), (35, "maj")]  # Em C D B
+    for bar in range(16):
+        root, kind = prog[bar % 4]
+        drum_pattern(s, bar, [0, 3, 8, 11], [4, 12], range(0, 16, 2), [14], kgain=1.0)
+        for st in (6, 14):
+            t = t_axis(0.35)
+            tom = osc("sine", 80 * (1 + 0.6 * np.exp(-t / 0.05)), 0.35) * env_exp(len(t), 0.14)
+            s.add(tom, bar, st, 0.5)
+        for st in range(0, 16, 2):
+            s.add(bass(root + (7 if st in (4, 12) else 0), s.step * 1.6, "saw", 0.5), bar, st)
+        arp = chord_notes(root + 24, kind)
+        for st in range(0, 16, 2):
+            s.add(pluck(arp[(st // 2) % 3] + (12 if st >= 8 else 0), s.step * 1.4, "pulse", 2800, 0.08, 0.1), bar, st + 1)
+    hook = [[(0, 76, 2), (2, 79, 2), (4, 78, 4), (8, 76, 2), (10, 74, 2), (12, 71, 4)],
+            [(0, 72, 4), (4, 76, 4), (8, 79, 6)],
+            [(0, 74, 2), (2, 78, 2), (4, 81, 4), (8, 78, 4), (12, 74, 4)],
+            [(0, 75, 6), (8, 71, 6)]]
+    for bar in range(4, 16):
+        for st, n, ln in hook[bar % 4]:
+            s.add(lead(n, s.step * ln, "square", 0.005, 0.18), bar, st)
+    return s.render(0.72)
+
+
+def song_trails():
+    """Synthwave chase. A minor, 128 BPM, 16 bars. Pulsing 8th bass + arps."""
+    s = Song(128, 16)
+    prog = [(45, "min"), (41, "maj"), (48, "maj"), (43, "maj")]  # Am F C G
+    for bar in range(16):
+        root, kind = prog[bar % 4]
+        drum_pattern(s, bar, [0, 4, 8, 12], [4, 12], range(2, 16, 4), [], clap_steps=[12] if bar % 2 else [], kgain=0.9)
+        for st in range(0, 16, 2):
+            s.add(lp(bass(root - 12, s.step * 1.7, "saw", 0.55), 900), bar, st)
+        arp = chord_notes(root + 24, kind) + [root + 36]
+        for st in range(16):
+            s.add(pluck(arp[[0, 1, 2, 3, 2, 1][st % 6]], s.step * 1.1, "saw", 3200, 0.06, 0.09), bar, st)
+        s.add(pad([n + 12 for n in chord_notes(root + 12, kind)], s.step * 16, 0.12), bar, 0)
+    mel = [[(0, 76, 6), (6, 74, 2), (8, 72, 4), (12, 69, 4)],
+           [(0, 72, 6), (6, 74, 2), (8, 77, 8)],
+           [(0, 79, 4), (4, 76, 4), (8, 72, 4), (12, 76, 4)],
+           [(0, 74, 8), (8, 71, 8)]]
+    for bar in range(8, 16):
+        for st, n, ln in mel[bar % 4]:
+            s.add(lead(n, s.step * ln, "saw", 0.008, 0.15), bar, st)
+    return s.render(0.72)
+
+
+def song_balloon():
+    """Silly carnival waltz-ish bounce. G major, 116 BPM, 16 bars. Oom-pah + bells."""
+    s = Song(116, 16)
+    prog = [(43, "maj"), (48, "maj"), (50, "maj"), (43, "maj")]  # G C D G
+    for bar in range(16):
+        root, kind = prog[bar % 4]
+        drum_pattern(s, bar, [0, 8], [], [4, 12], [], clap_steps=[4, 12], kgain=0.7)
+        for st, off in [(0, 0), (8, 7)]:
+            s.add(bass(root - 12 + off, s.step * 3, "tri", 0.7), bar, st)
+        ch = chord_notes(root + 12, kind)
+        for st in (4, 6, 12, 14):
+            for n in ch:
+                s.add(pluck(n + 12, s.step * 1.2, "square", 2400, 0.07, 0.1), bar, st)
+    mel = [[(0, 79, 2), (2, 81, 2), (4, 83, 4), (8, 86, 4), (12, 83, 4)],
+           [(0, 84, 2), (2, 83, 2), (4, 81, 4), (8, 79, 8)],
+           [(0, 81, 2), (2, 83, 2), (4, 84, 4), (8, 81, 2), (10, 78, 2), (12, 74, 4)],
+           [(0, 79, 4), (4, 83, 4), (8, 79, 6)]]
+    for bar in range(2, 16):
+        for st, n, ln in mel[bar % 4]:
+            s.add(bell(n, s.step * ln + 0.25, 0.32), bar, st, 0.9)
+    return s.render(0.72)
+
+
+def song_heist():
+    """Sneaky spy groove. D minor, 104 BPM, 16 bars. Walking bass + muted stabs."""
+    s = Song(104, 16)
+    prog = [(38, "min"), (38, "min"), (43, "min"), (45, "maj")]  # Dm Dm Gm A
+    walk = [0, 3, 5, 6, 7, 6, 5, 3]
+    for bar in range(16):
+        root, kind = prog[bar % 4]
+        drum_pattern(s, bar, [0, 10], [4, 12], range(0, 16, 2), [6], kgain=0.8)
+        for i, off in enumerate(walk):
+            s.add(bass(root - 12 + off, s.step * 1.8, "tri", 0.75), bar, i * 2)
+        ch = chord_notes(root + 24, kind)
+        for st in (3, 11):
+            for n in ch:
+                s.add(pluck(n, s.step * 0.8, "pulse", 2000, 0.05, 0.12), bar, st)
+    mel = [[(0, 74, 3), (4, 77, 1), (5, 76, 1), (6, 74, 2), (8, 69, 6)],
+           [(0, 74, 3), (4, 77, 1), (5, 79, 1), (6, 81, 2), (8, 80, 6)],
+           [(0, 79, 3), (4, 82, 1), (5, 81, 1), (6, 79, 2), (8, 74, 6)],
+           [(0, 76, 4), (4, 73, 4), (8, 69, 6)]]
+    for bar in range(4, 16):
+        for st, n, ln in mel[bar % 4]:
+            s.add(lead(n, s.step * ln, "pulse", 0.006, 0.2), bar, st)
+    return s.render(0.72)
+
+
 def fanfare():
     """Winner jingle (not looped)."""
     s = Song(140, 3)
@@ -448,6 +544,21 @@ def sfx():
     for i, n in enumerate((67, 66, 65, 64)):
         mix_at(x, lead(n, 0.32 if i < 3 else 0.7, "saw", 0.012 if i == 3 else 0, 0.3), i * 0.3)
     fx["out"] = lp(x, 2500)
+    # new games
+    t = t_axis(0.25)
+    fx["crack"] = hp(noise(0.25), 1500) * env_exp(len(t), 0.03) * 0.8 + osc("sine", 160 + 90 * np.exp(-t / 0.02), 0.25) * env_exp(len(t), 0.05) * 0.5
+    t = t_axis(0.3)
+    fx["pop"] = hp(noise(0.3), 800) * env_exp(len(t), 0.025) * 1.6 + osc("sine", 300 * np.exp(-t / 0.05) + 80, 0.3) * env_exp(len(t), 0.04) * 0.7
+    t = t_axis(0.22)
+    fx["pump"] = bp(noise(0.22), 600, 2400) * env_adsr(len(t), 0.03, 0.08, 0.5, 0.08) * 0.9 + osc("sine", np.linspace(220, 330, len(t)), 0.22) * env_exp(len(t), 0.08) * 0.25
+    x = np.zeros(int(0.3 * SR))
+    mix_at(x, bell(93, 0.25, 0.4), 0.0)
+    mix_at(x, bell(100, 0.2, 0.3), 0.05)
+    fx["gem"] = x
+    x = np.zeros(int(0.6 * SR))
+    for i, n in enumerate((79, 84, 88, 91)):
+        mix_at(x, bell(n, 0.35, 0.35), i * 0.06)
+    fx["bank"] = x
     return fx
 
 
@@ -457,11 +568,32 @@ def main():
     save("music_sumo", song_sumo(), loop=True)
     save("music_bomb", song_bomb(), loop=True)
     save("music_paint", song_paint(), loop=True)
+    save("music_floor", song_floor(), loop=True)
+    save("music_trails", song_trails(), loop=True)
+    save("music_balloon", song_balloon(), loop=True)
+    save("music_heist", song_heist(), loop=True)
     save("fanfare", fanfare())
     print("sfx:")
     for name, x in sfx().items():
         save("sfx_" + name, normalize(x, 0.85))
 
 
+def main_new():
+    """Only the files added in v2.0 (keeps the old ones exactly as they were)."""
+    print("music:")
+    save("music_floor", song_floor(), loop=True)
+    save("music_trails", song_trails(), loop=True)
+    save("music_balloon", song_balloon(), loop=True)
+    save("music_heist", song_heist(), loop=True)
+    print("sfx:")
+    for name, x in sfx().items():
+        if name in ("crack", "pop", "pump", "gem", "bank"):
+            save("sfx_" + name, normalize(x, 0.85))
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "new":
+        main_new()
+    else:
+        main()

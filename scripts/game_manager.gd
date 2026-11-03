@@ -14,10 +14,12 @@ signal touch_mode_changed
 const RelayPeer := preload("res://scripts/net/relay_peer.gd")
 const LocalRelayServer := preload("res://scripts/net/local_relay_server.gd")
 
-const BUILD := "1.9 (new menus)"
+const BUILD := "2.0 (4 new games)"
 const MAX_PLAYERS := 5
 const BOT_FILL_TO := 4           # bots fill empty slots up to this many players
-const ROUNDS_PLAYLIST := ["bumper_sumo", "bomb_tag", "tile_painter"]
+const ROUNDS_PLAYLIST := [
+	"bumper_sumo", "bomb_tag", "tile_painter", "falling_floor", "light_trails", "balloon_pump", "gem_heist",
+]
 const RESULTS_TIME := 3.5
 const CONNECT_TIMEOUT := 6.0
 const QUICK_WAIT := 30.0         # longest a quick match waits for players before bots fill in
@@ -63,6 +65,58 @@ const GAME_INFO := {
 			"Power-ups: Paint Bomb, Roller, Freeze, Swap",
 			"Dodge the Eraser bot",
 			"Last 10 seconds = FRENZY!",
+		],
+		"pc": ["WASD / Arrows: move", "Space, Shift or Click: dash"],
+		"touch": ["Left thumb: move (anywhere)", "Right button: dash"],
+	},
+	"falling_floor": {
+		"title": "FALLING FLOOR",
+		"rules": "Don't fall into the lava!",
+		"steps": [
+			"Step on a tile and it cracks",
+			"Step on a cracked tile and it falls!",
+			"HOP over a 1-tile gap",
+			"Dash into rivals to push them off",
+			"Last one standing wins",
+		],
+		"pc": ["WASD / Arrows: move", "Space, Shift or Click: hop"],
+		"touch": ["Left thumb: move (anywhere)", "Right button: hop"],
+	},
+	"light_trails": {
+		"title": "LIGHT TRAILS",
+		"rules": "Don't crash into a trail!",
+		"steps": [
+			"You never stop moving",
+			"You leave a glowing wall behind you",
+			"Hit any trail or the edge = out",
+			"Everyone gets faster over time",
+			"Last rider standing wins",
+		],
+		"pc": ["WASD / Arrows: turn", "Space, Shift or Click: boost"],
+		"touch": ["Left thumb: push to turn", "Right button: boost"],
+	},
+	"balloon_pump": {
+		"title": "BALLOON PUMP",
+		"rules": "Biggest balloon without popping!",
+		"steps": [
+			"Hold to pump, let go to stop",
+			"Bigger balloon = more points",
+			"Pump too much and it POPS = 0",
+			"It wobbles when it's close (maybe!)",
+			"Biggest balloon gets +20. 3 rounds",
+		],
+		"pc": ["Hold Space or the mouse: pump", "Let go: stop"],
+		"touch": ["Hold anywhere: pump", "Let go: stop"],
+	},
+	"gem_heist": {
+		"title": "GEM HEIST",
+		"rules": "Bank the most gems!",
+		"steps": [
+			"Grab gems in the middle (up to 3)",
+			"Carry them to YOUR base to bank them",
+			"You're slower while carrying",
+			"Dash a carrier to knock gems loose",
+			"Big gems = 3. Last 15 s = GEM RUSH",
 		],
 		"pc": ["WASD / Arrows: move", "Space, Shift or Click: dash"],
 		"touch": ["Left thumb: move (anywhere)", "Right button: dash"],
@@ -452,7 +506,9 @@ func _on_relay_event(msg: Dictionary) -> void:
 				players.clear()
 				_add_player(1, local_name, autotest, 0)
 				if quick:
-					rules = {"mode": "party", "count": 3, "games": ROUNDS_PLAYLIST.duplicate()}
+					# (Self-tests keep the rules from autotest.txt so any game can be tested online.)
+					if not autotest:
+						rules = {"mode": "party", "count": 3, "games": ROUNDS_PLAYLIST.duplicate()}
 					quick_countdown = quick_wait
 					status_changed.emit("Waiting for players to join...")
 				else:
@@ -598,7 +654,7 @@ func quick_start_now() -> void:
 ## mode: "party" = play `count` games (most points wins)
 ##       "wins"  = first player to win `count` games (a win = 1st place, ties count for everyone tied)
 ##       "single"= one game only (games[0])
-var rules: Dictionary = {"mode": "party", "count": 3, "games": ["bumper_sumo", "bomb_tag", "tile_painter"]}
+var rules: Dictionary = {"mode": "party", "count": 3, "games": ROUNDS_PLAYLIST.duplicate()}
 var current_game_id: String = ""
 var _queue: Array = []
 const MAX_ROUNDS_SAFETY := 30

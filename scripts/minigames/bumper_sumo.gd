@@ -19,10 +19,11 @@ const REVEAL_TIME := 0.9
 const MOVE_MAX_TIME := 5.0
 const SHRINK_TIME := 1.1
 
-const MAX_LAUNCH := 640.0      # px/s at full power
+const MAX_LAUNCH := 600.0      # px/s at full power
 const MIN_POWER := 0.25
 const DECEL := 340.0           # px/s^2 sliding friction (low = icy, long slides)
-const BUMP_BONUS := 1.15       # hits transfer a little extra energy (more fun)
+const BUMP_BONUS := 0.97       # hits pass on almost all of the hitter's speed
+const HIT_SPEED_CAP := 500.0   # nobody gets knocked faster than this
 const PHASES := ["aim", "reveal", "move", "shrink"]
 const BRACE_LEN := 0.12
 const KEY_TURN_SPEED := 2.4     # rad/s for A/D aiming
@@ -46,7 +47,6 @@ var locked_ids: Array = []
 var _local_aim_dir: Vector2 = Vector2.ZERO
 var _local_aim_power: float = 0.0
 var _aim_touched := false
-var _bg_acc := 0.0
 var _plat_acc := 0.0
 var _drawn_radius := -1.0
 var _aim_drawn := false
@@ -271,6 +271,8 @@ func _collide(a, b) -> void:
 	var j: float = rel * BUMP_BONUS
 	a.move_vel -= n * j
 	b.move_vel += n * j
+	a.move_vel = a.move_vel.limit_length(HIT_SPEED_CAP)
+	b.move_vel = b.move_vel.limit_length(HIT_SPEED_CAP)
 	if rel > 150.0:
 		_hit_count += 1
 		_last_hit_pos = (a.position + b.position) * 0.5 + Vector2(0, -12)
@@ -577,11 +579,7 @@ func client_process(delta: float) -> void:
 		hud.set_action("WAIT...", Color("#7a7a90"))
 	if state == "running" and phase != "aim":
 		hud.timer_label.text = "GO" if phase != "shrink" else "--"
-	# The lava drifts slowly: redraw it ~10x/s. The platform ~30x/s (faster while shrinking).
-	_bg_acc += delta
-	if _bg_acc >= 0.1:
-		_bg_acc = 0.0
-		bg.queue_redraw()
+	# The background is static (drawn once). The platform ~30x/s (faster while shrinking).
 	_plat_acc += delta
 	if _plat_acc >= 1.0 / 30.0 or absf(arena_radius - _drawn_radius) > 0.5:
 		_plat_acc = 0.0
@@ -644,33 +642,47 @@ func _draw_arrow(from: Vector2, dir: Vector2, power: float, col: Color, _show_la
 		aim_layer.draw_arc(from, 34.0, 0.0, TAU, 32, Color(1, 1, 1, 0.75), 3.0, true)
 		return
 	var d := dir.normalized()
+	var side := Vector2(-d.y, d.x)
 	# No landing marker on purpose: you only see direction + how big the arrow is.
 	var frac: float = clampf(travel_for_power(power) / travel_for_power(1.0), 0.0, 1.0)
-	var alen: float = 44.0 + frac * 150.0
-	var tip: Vector2 = from + d * alen
-	var side := Vector2(-d.y, d.x)
-	var w: float = 6.0 + frac * 6.0
-	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, Color(0, 0, 0, 0.4), w + 4.0)
-	aim_layer.draw_line(from + d * 26.0, tip - d * 10.0, col, w)
-	var head := PackedVector2Array([tip + d * 6.0, tip - d * 14.0 + side * 13.0, tip - d * 14.0 - side * 13.0])
-	aim_layer.draw_colored_polygon(head, col)
-	aim_layer.draw_polyline(PackedVector2Array([head[0], head[1], head[2], head[0]]), Color.WHITE, 2.0, true)
+	var start: Vector2 = from + d * 30.0
+	var alen: float = 22.0 + frac * 62.0          # shaft length (short and chunky)
+	var neck: Vector2 = start + d * alen
+	var tip: Vector2 = neck + d * 26.0
+	var w0: float = 5.0 + frac * 2.0               # tail half-width
+	var w1: float = 8.0 + frac * 3.0               # shaft half-width at the head
+	var hw: float = 18.0 + frac * 4.0              # head half-width
+	var shape := PackedVector2Array([
+		start + side * w0, neck + side * w1, neck + side * hw, tip,
+		neck - side * hw, neck - side * w1, start - side * w0,
+	])
+	# Drop shadow, dark rim, then the colour fill
+	var shadow := PackedVector2Array()
+	for v in shape:
+		shadow.append(v + Vector2(0, 6))
+	aim_layer.draw_colored_polygon(shadow, Color(0, 0, 0, 0.35))
+	var fill: Color = col.lerp(Color.WHITE, 0.15 + frac * 0.25)
+	aim_layer.draw_colored_polygon(shape, fill)
+	# Brighter stripe down the middle + white outline
+	aim_layer.draw_line(start + d * 4.0, neck, Color(1, 1, 1, 0.45), maxf(w0 * 0.6, 2.0), true)
+	var rim := shape.duplicate()
+	rim.append(shape[0])
+	aim_layer.draw_polyline(rim, Color.WHITE, 3.0, true)
+	# Power pips behind the arrow (1-3)
+	var pips: int = 1 + int(frac * 2.99)
+	for k in pips:
+		var c: Vector2 = start - d * (10.0 + float(k) * 11.0)
+		aim_layer.draw_circle(c, 4.0, Color(0, 0, 0, 0.35))
+		aim_layer.draw_circle(c, 3.0, Color.WHITE)
 
 
+## Simple, calm background: a flat dark-red floor with a soft warm glow under the ring.
 func _draw_bg() -> void:
-	bg.draw_rect(Rect2(-1400, -1000, 4080, 2720), Color("#14050a"))
-	var pulse: float = 0.5 + 0.5 * sin(_t * 1.6)
-	for i in 6:
-		var rr: float = START_RADIUS + 330.0 - float(i) * 55.0
-		var a: float = 0.06 + float(i) * 0.03 + pulse * 0.02
-		bg.draw_colored_polygon(UI.ellipse_points(CENTER + Vector2(0, 24), rr, rr * 0.82, 56), Color(1.0, 0.28 + float(i) * 0.04, 0.04, a))
-	for i in 16:
-		var ang: float = float(i) * 0.83 + _t * 0.12 * (1.0 + float(i % 3))
-		var dist: float = 360.0 + 60.0 * sin(_t * 0.7 + float(i))
-		var bp: Vector2 = CENTER + Vector2(cos(ang) * dist * 1.25, sin(ang) * dist * 0.7)
-		var br: float = 26.0 + 12.0 * sin(_t * 1.3 + float(i) * 2.0)
-		bg.draw_colored_polygon(UI.ellipse_points(bp, br * 1.4, br * 0.8, 20), Color(1.0, 0.45, 0.08, 0.22))
-		bg.draw_colored_polygon(UI.ellipse_points(bp, br * 0.6, br * 0.3, 14), Color(1.0, 0.8, 0.3, 0.25))
+	bg.draw_rect(Rect2(-1400, -1000, 4080, 2720), Color("#1c0d14"))
+	for i in 4:
+		var rr: float = START_RADIUS + 260.0 - float(i) * 60.0
+		bg.draw_colored_polygon(UI.ellipse_points(CENTER + Vector2(0, 24), rr, rr * 0.82, 64), Color(0.85, 0.25, 0.1, 0.07))
+	bg.draw_polyline(UI.ellipse_points(CENTER + Vector2(0, 24), START_RADIUS + 70.0, (START_RADIUS + 70.0) * 0.82, 64) + PackedVector2Array([CENTER + Vector2(START_RADIUS + 70.0, 24)]), Color(1.0, 0.45, 0.2, 0.18), 3.0, true)
 
 
 func _draw_platform() -> void:
