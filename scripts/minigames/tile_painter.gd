@@ -2,7 +2,7 @@ extends "res://scripts/minigames/minigame_base.gd"
 ## TILE PAINTER - 16x10 board of raised tiles. Walk to paint, dash to splash a 3x3 area
 ## and stun anyone you hit. Most tiles at the buzzer wins (equal tiles = a real tie).
 ## Chaos:
-##  - Power-ups: PAINT BOMB (big splash after a short fuse), ROLLER (paint 3 wide for a while),
+##  - Power-ups: PAINT BOMB (thrown somewhere that is not your colour yet, big splash when it lands), ROLLER (paint 3 wide for a while),
 ##    FREEZE (everyone else frozen), SWAP (trade ALL your tiles with the leader's!)
 ##  - ERASER BOT rolls in after a while, wiping paint and bumping players
 ##  - FRENZY in the last 10 seconds: power-ups rain down and dashes recharge twice as fast
@@ -24,7 +24,8 @@ const PU_EVERY_FRENZY := 1.3
 const PU_MAX := 3
 const PU_MAX_FRENZY := 6
 const PU_PICK_DIST := 32.0
-const PAINT_BOMB_FUSE := 1.2
+const PAINT_BOMB_FUSE := 1.75       # includes the throw
+const BOMB_FLIGHT := 0.55           # the bomb flies through the air this long
 const PAINT_BOMB_RADIUS := 2.7
 const ROLLER_TIME := 5.0
 const FREEZE_TIME := 1.6
@@ -40,7 +41,7 @@ var _pop: PackedFloat32Array = PackedFloat32Array()
 var _counts: Array = [0, 0, 0, 0, 0, 0]
 
 var powerups: Array = []          # [uid, type, cx, cy]
-var paint_bombs: Array = []       # [uid, cx, cy, value, t_left]
+var paint_bombs: Array = []       # [uid, cx, cy, value, t_left, thrown_from]
 var rollers: Dictionary = {}      # id -> time left (host); clients get a list of ids
 var roller_ids: Array = []
 var _uid: int = 0
@@ -249,9 +250,11 @@ func _apply_powerup(p, typ: int, pos: Vector2) -> void:
 	var pcol: Color = p.player_color
 	match PU_TYPES[typ]:
 		"bomb":
+			# Thrown to a part of the board that ISN'T your colour yet
+			# (where you picked it up is usually already painted by you).
 			_uid += 1
-			var c := _cell_of(pos)
-			paint_bombs.append([_uid, c.x, c.y, val, PAINT_BOMB_FUSE])
+			var c := _bomb_target(val, _cell_of(pos))
+			paint_bombs.append([_uid, c.x, c.y, val, PAINT_BOMB_FUSE, pos])
 			push_event(pos + Vector2(0, -40), "PAINT BOMB!", col)
 		"roller":
 			rollers[int(p.peer_id)] = ROLLER_TIME
@@ -281,6 +284,28 @@ func _apply_powerup(p, typ: int, pos: Vector2) -> void:
 				# Already leading: just a big splash instead.
 				_paint_area(_cell_of(pos), val, 2)
 				push_event(pos + Vector2(0, -40), "SPLASH!", pcol)
+
+
+## Try a handful of random spots and throw the bomb where it paints the most tiles
+## that aren't yours already (random, but almost always worth it). Not right on top of you.
+func _bomb_target(val: int, from: Vector2i) -> Vector2i:
+	var best := Vector2i(COLS >> 1, ROWS >> 1)
+	var best_n := -1
+	var r: int = ceili(PAINT_BOMB_RADIUS)
+	for _k in 8:
+		var c := Vector2i(1 + randi() % (COLS - 2), 1 + randi() % (ROWS - 2))
+		if absi(c.x - from.x) + absi(c.y - from.y) < 4:
+			continue
+		var n := 0
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var cc := c + Vector2i(dx, dy)
+				if _valid(cc) and Vector2(dx, dy).length() <= PAINT_BOMB_RADIUS and int(tiles[_idx(cc)]) != val:
+					n += 1
+		if n > best_n:
+			best_n = n
+			best = c
+	return best
 
 
 func _update_paint_bombs(delta: float) -> void:
@@ -638,8 +663,21 @@ func _draw_powerups() -> void:
 		var bc := _cell_center(Vector2i(int(pb[1]), int(pb[2])))
 		var pcol: Color = _slot_color(int(pb[3]) - 1)
 		var left: float = float(pb[4])
-		var k: float = 1.0 - clampf(left / PAINT_BOMB_FUSE, 0.0, 1.0)
 		var ring_r: float = PAINT_BOMB_RADIUS * TILE
+		var flown: float = PAINT_BOMB_FUSE - left
+		if flown < BOMB_FLIGHT and pb.size() > 5:
+			# In the air: arc from where it was picked up to where it lands
+			var f: float = clampf(flown / BOMB_FLIGHT, 0.0, 1.0)
+			var from: Vector2 = pb[5]
+			var ground: Vector2 = from.lerp(bc, f)
+			var air: Vector2 = ground + Vector2(0, -10.0 - sin(f * PI) * 150.0)
+			pu_node.draw_arc(bc, ring_r, 0.0, TAU, 48, Color(pcol, 0.25 + 0.4 * f), 3.0, true)
+			pu_node.draw_colored_polygon(UI.ellipse_points(ground + Vector2(0, 8), 14.0 - sin(f * PI) * 6.0, 5.0, 16), Color(0, 0, 0, 0.35))
+			pu_node.draw_circle(air, 15.0, Color(0.1, 0.08, 0.12))
+			pu_node.draw_circle(air, 10.0, pcol)
+			pu_node.draw_circle(air + Vector2(-4, -5), 3.5, Color(1, 1, 1, 0.6))
+			continue
+		var k: float = 1.0 - clampf(left / (PAINT_BOMB_FUSE - BOMB_FLIGHT), 0.0, 1.0)
 		pu_node.draw_circle(bc, ring_r, Color(pcol, 0.12 + 0.12 * k))
 		pu_node.draw_arc(bc, ring_r, 0.0, TAU, 48, Color(pcol, 0.8), 3.0, true)
 		pu_node.draw_arc(bc, ring_r * k, 0.0, TAU, 48, Color(1, 1, 1, 0.6), 2.0, true)

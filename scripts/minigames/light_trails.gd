@@ -360,6 +360,7 @@ func _flood(start: Vector2i, limit: int) -> int:
 func client_process(delta: float) -> void:
 	_t += delta
 	hud.set_action("BOOST", Color("#00F5D4"))
+	hud.dpad_mode = true
 	var me = players.get(GameManager.my_id())
 	if me != null:
 		var b: bool = float(me.boost_timer) > 0.0 and not me.is_eliminated

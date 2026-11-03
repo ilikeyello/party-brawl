@@ -162,6 +162,8 @@ func _start_autotest() -> void:
 					_auto_speed = float(kv[1])
 				"bots":
 					_auto_bots = clampi(int(kv[1]), 1, 4)
+				"touch":
+					GameManager.touch_mode = kv[1] == "1"   # show the phone controls on PC
 				"ui":
 					net = "ui"
 	GameManager.set_rules(r)

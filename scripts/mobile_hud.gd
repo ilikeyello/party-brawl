@@ -28,6 +28,12 @@ var _knob: Vector2 = Vector2.ZERO
 var _joy_origin: Vector2 = Vector2.ZERO
 ## Sumo: touches outside the joystick corner aim directly (touch where you want to slide).
 var free_aim: bool = false
+## D-pad mode (Light Trails): a 4-way pad instead of the joystick (turns are 90 degrees).
+var dpad_mode: bool = false
+const DPAD_BTN := 62.0        # size of each arrow button
+const DPAD_GAP := 66.0        # centre of the pad -> centre of each arrow
+var _dpad_touch: int = -1
+var _dpad_dir: Vector2 = Vector2.ZERO
 ## Hold mode (Balloon Pump): touching anywhere on the screen holds the action button.
 var hold_mode: bool = false
 var hold_hint: String = "HOLD ANYWHERE"
@@ -233,6 +239,9 @@ func flash(col: Color) -> void:
 # ---------------------------------------------------------------- input
 
 func get_move_vector() -> Vector2:
+	if _dpad_touch != -1:
+		joystick_vector = _dpad_dir
+		return _dpad_dir
 	if _joy_touch != -1:
 		var raw := _knob / JOY_RADIUS
 		var l := raw.length()
@@ -278,6 +287,9 @@ func _input(event: InputEvent) -> void:
 				_btn_touch = st.index
 				action_held = true
 				_latched = true
+			elif dpad_mode and _dpad_touch == -1 and _in_dpad_zone(st.position):
+				_dpad_touch = st.index
+				_dpad_dir = _dpad_dir_at(st.position)
 			elif _btn_touch == -1 and st.position.distance_to(btn_center()) <= BUTTON_SIZE * 0.8:
 				_btn_touch = st.index
 				action_held = true
@@ -292,6 +304,9 @@ func _input(event: InputEvent) -> void:
 				free_pos = st.position
 				free_start = st.position
 		else:
+			if st.index == _dpad_touch:
+				_dpad_touch = -1
+				_dpad_dir = Vector2.ZERO
 			if st.index == _joy_touch:
 				_joy_touch = -1
 				_knob = Vector2.ZERO
@@ -303,7 +318,12 @@ func _input(event: InputEvent) -> void:
 				action_held = false
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
-		if sd.index == _joy_touch:
+		if sd.index == _dpad_touch:
+			# Slide your thumb from one arrow to another without lifting it
+			var nd := _dpad_dir_at(sd.position)
+			if nd != Vector2.ZERO:
+				_dpad_dir = nd
+		elif sd.index == _joy_touch:
 			_set_knob(sd.position)
 		elif sd.index == _free_touch:
 			free_pos = sd.position
@@ -329,6 +349,48 @@ func _set_knob(p: Vector2) -> void:
 		_joy_origin = p - off.normalized() * JOY_RADIUS
 		off = p - _joy_origin
 	_knob = off
+
+
+func dpad_center() -> Vector2:
+	var s := _vp_size()
+	return Vector2(160.0 + GameManager.safe_insets.x, s.y - 160.0 - GameManager.safe_insets.w)
+
+
+## The whole left part of the screen counts, so a thumb a bit off the pad still works.
+func _in_dpad_zone(p: Vector2) -> bool:
+	var s := _vp_size()
+	return p.y > s.y * 0.16 and p.x < s.x * 0.5
+
+
+## Which arrow a touch is on: the direction from the pad's centre (straight lines only).
+func _dpad_dir_at(p: Vector2) -> Vector2:
+	var off := p - dpad_center()
+	if off.length() < 14.0:
+		return Vector2.ZERO
+	if absf(off.x) > absf(off.y):
+		return Vector2(signf(off.x), 0.0)
+	return Vector2(0.0, signf(off.y))
+
+
+func _draw_dpad() -> void:
+	var c := dpad_center()
+	pad.draw_circle(c + Vector2(0, 6), DPAD_GAP + DPAD_BTN * 0.6, Color(0, 0, 0, 0.22))
+	pad.draw_circle(c, DPAD_GAP + DPAD_BTN * 0.6, Color(1, 1, 1, 0.07))
+	var held := get_move_vector()
+	for d in [Vector2.UP, Vector2.RIGHT, Vector2.DOWN, Vector2.LEFT]:
+		var on: bool = held.dot(d) > 0.7
+		var bc: Vector2 = c + d * DPAD_GAP
+		var depth := 2.0 if on else 6.0
+		var r := Rect2(bc - Vector2(DPAD_BTN, DPAD_BTN) * 0.5, Vector2(DPAD_BTN, DPAD_BTN))
+		pad.draw_rect(Rect2(r.position + Vector2(0, 6), r.size), Color(0, 0, 0, 0.3))
+		var top := Rect2(r.position + Vector2(0, 6.0 - depth), r.size)
+		pad.draw_rect(top, Color("#00F5D4") if on else Color(1, 1, 1, 0.22))
+		pad.draw_rect(top, Color(1, 1, 1, 0.6), false, 2.0)
+		var tc: Vector2 = top.get_center()
+		var side := Vector2(-d.y, d.x)
+		var tri := PackedVector2Array([tc + d * 16.0, tc - d * 10.0 + side * 15.0, tc - d * 10.0 - side * 15.0])
+		pad.draw_colored_polygon(tri, Color(0.05, 0.05, 0.15, 0.9) if on else Color.WHITE)
+	pad.draw_circle(c, 14.0, Color(1, 1, 1, 0.15))
 
 
 func _in_joy_zone(p: Vector2) -> bool:
@@ -381,6 +443,10 @@ func _draw_pad() -> void:
 		var hp := Vector2(20.0 + GameManager.safe_insets.x, hs.y - 40.0 - GameManager.safe_insets.w)
 		pad.draw_string_outline(hf, hp, hold_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0, 0, 0, 0.7))
 		pad.draw_string(hf, hp, hold_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.85))
+		_draw_action_button()
+		return
+	if dpad_mode:
+		_draw_dpad()
 		_draw_action_button()
 		return
 	# Joystick base
