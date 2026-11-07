@@ -34,6 +34,16 @@ const DPAD_BTN := 62.0        # size of each arrow button
 const DPAD_GAP := 66.0        # centre of the pad -> centre of each arrow
 var _dpad_touch: int = -1
 var _dpad_dir: Vector2 = Vector2.ZERO
+## Swipe mode (Light Trails): swipe anywhere in the direction you want to go. The last swipe
+## stays "on" until the next one, so a quick second swipe gets queued for the next corner.
+## One finger can do several swipes in a row without lifting (e.g. up, then right).
+var swipe_mode: bool = false
+const SWIPE_MIN := 34.0       # finger has to move this far to count as a swipe
+var _swipe_touch: int = -1
+var _swipe_from: Vector2 = Vector2.ZERO
+var _swipe_dir: Vector2 = Vector2.ZERO
+var _swipe_t: float = 9.0     # time since the last swipe (for the little arrow that fades out)
+var _swipe_at: Vector2 = Vector2.ZERO
 ## Hold mode (Balloon Pump): touching anywhere on the screen holds the action button.
 var hold_mode: bool = false
 var hold_hint: String = "HOLD ANYWHERE"
@@ -136,11 +146,12 @@ func _process(delta: float) -> void:
 		timer_label.pivot_offset = timer_label.size * 0.5
 	if badges_box != null:
 		badges_box.position = Vector2(s.x - badges_box.size.x - 12.0 - ins.z, 10.0 + ins.y)
+	_swipe_t += delta
 	# Only redraw the controls when something about them changed (was every frame).
 	var key: Array = [GameManager.touch_mode, free_aim, hold_mode, dpad_mode, _joy_touch, _knob.round(), _joy_origin.round(),
 		_btn_touch, _dpad_touch, (get_move_vector() * 20.0).round(), free_active, free_pos.round(), free_start.round(),
 		snappedf(cooldown_ratio, 0.01), _is_action_down(), action_label, action_color, pc_key, key_hint, hold_hint,
-		s, ins, _ring_pulse_step()]
+		s, ins, _ring_pulse_step(), swipe_mode, _swipe_dir, _swipe_touch, _swipe_at.round(), mini(int(_swipe_t * 10.0), 6)]
 	if key != _pad_key:
 		_pad_key = key
 		pad.queue_redraw()
@@ -257,6 +268,9 @@ func flash(col: Color) -> void:
 # ---------------------------------------------------------------- input
 
 func get_move_vector() -> Vector2:
+	if swipe_mode and _swipe_dir != Vector2.ZERO:
+		joystick_vector = _swipe_dir
+		return _swipe_dir
 	if _dpad_touch != -1:
 		joystick_vector = _dpad_dir
 		return _dpad_dir
@@ -305,6 +319,10 @@ func _input(event: InputEvent) -> void:
 				_btn_touch = st.index
 				action_held = true
 				_latched = true
+			elif swipe_mode and _swipe_touch == -1 and st.position.y > _vp_size().y * 0.12 \
+					and st.position.distance_to(btn_center()) > BUTTON_SIZE * 0.8:
+				_swipe_touch = st.index
+				_swipe_from = st.position
 			elif dpad_mode and _dpad_touch == -1 and _in_dpad_zone(st.position):
 				_dpad_touch = st.index
 				_dpad_dir = _dpad_dir_at(st.position)
@@ -322,6 +340,10 @@ func _input(event: InputEvent) -> void:
 				free_pos = st.position
 				free_start = st.position
 		else:
+			if st.index == _swipe_touch:
+				# A short flick that ended before reaching SWIPE_MIN still counts if it's clear enough.
+				_try_swipe(st.position, SWIPE_MIN * 0.6)
+				_swipe_touch = -1
 			if st.index == _dpad_touch:
 				_dpad_touch = -1
 				_dpad_dir = Vector2.ZERO
@@ -336,7 +358,9 @@ func _input(event: InputEvent) -> void:
 				action_held = false
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
-		if sd.index == _dpad_touch:
+		if sd.index == _swipe_touch:
+			_try_swipe(sd.position, SWIPE_MIN)
+		elif sd.index == _dpad_touch:
 			# Slide your thumb from one arrow to another without lifting it
 			var nd := _dpad_dir_at(sd.position)
 			if nd != Vector2.ZERO:
@@ -358,6 +382,22 @@ func _input(event: InputEvent) -> void:
 		var jb := event as InputEventJoypadButton
 		if jb.pressed and jb.button_index == JOY_BUTTON_A:
 			_latched = true
+
+
+func _try_swipe(p: Vector2, min_dist: float) -> void:
+	var off := p - _swipe_from
+	if off.length() < min_dist:
+		return
+	var d: Vector2
+	if absf(off.x) > absf(off.y):
+		d = Vector2(signf(off.x), 0.0)
+	else:
+		d = Vector2(0.0, signf(off.y))
+	if d != _swipe_dir:
+		_swipe_t = 0.0
+		_swipe_at = p
+	_swipe_dir = d
+	_swipe_from = p    # start measuring the next swipe from here
 
 
 func _set_knob(p: Vector2) -> void:
@@ -463,6 +503,10 @@ func _draw_pad() -> void:
 		pad.draw_string(hf, hp, hold_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.85))
 		_draw_action_button()
 		return
+	if swipe_mode:
+		_draw_swipe()
+		_draw_action_button()
+		return
 	if dpad_mode:
 		_draw_dpad()
 		_draw_action_button()
@@ -513,6 +557,32 @@ func _draw_action_button() -> void:
 	var text_pos := top + Vector2(-r, 7)
 	pad.draw_string_outline(font, text_pos, action_label, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 17, 6, Color(0, 0, 0, 0.6))
 	pad.draw_string(font, text_pos, action_label, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 17, Color.WHITE)
+
+
+## Swipe mode: a hint at the bottom, a small arrow showing the way you're steering, and a quick
+## arrow where your finger swiped.
+func _draw_swipe() -> void:
+	var s := _vp_size()
+	var font: Font = UI.title_font()
+	var hp := Vector2(20.0 + GameManager.safe_insets.x, s.y - 40.0 - GameManager.safe_insets.w)
+	var hint := "SWIPE TO TURN"
+	pad.draw_string_outline(font, hp, hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0, 0, 0, 0.7))
+	pad.draw_string(font, hp, hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.8))
+	if _swipe_dir != Vector2.ZERO:
+		# Steady little arrow next to the hint = the direction you asked for
+		_draw_swipe_arrow(hp + Vector2(font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 30.0, -8.0), _swipe_dir, 16.0, Color(0.0, 0.96, 0.83, 0.9))
+		# Bigger arrow where you swiped, fading out over 0.6 s
+		var a: float = clampf(1.0 - float(mini(int(_swipe_t * 10.0), 6)) / 6.0, 0.0, 1.0)
+		if a > 0.0:
+			_draw_swipe_arrow(_swipe_at, _swipe_dir, 34.0, Color(1, 1, 1, 0.55 * a))
+
+
+func _draw_swipe_arrow(c: Vector2, d: Vector2, size_px: float, col: Color) -> void:
+	var side := Vector2(-d.y, d.x)
+	var tip := c + d * size_px
+	var back := c - d * size_px * 0.6
+	pad.draw_line(back, c, col, size_px * 0.35, true)
+	pad.draw_colored_polygon(PackedVector2Array([tip, c + side * size_px * 0.7, c - side * size_px * 0.7]), col)
 
 
 ## Sumo slingshot: line from where the drag started to the finger.

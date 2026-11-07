@@ -93,7 +93,7 @@ const GAME_INFO := {
 			"Last rider standing wins",
 		],
 		"pc": ["WASD / Arrows: turn", "Space, Shift or Click: boost"],
-		"touch": ["Left: D-pad arrows to turn", "Right button: boost"],
+		"touch": ["Swipe anywhere to turn", "Right button: boost"],
 	},
 	"balloon_pump": {
 		"title": "BALLOON PUMP",
