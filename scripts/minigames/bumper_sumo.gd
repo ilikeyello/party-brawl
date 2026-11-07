@@ -98,7 +98,10 @@ func build_arena() -> void:
 	g.set_color(0, Color(1.0, 0.75, 0.2, 0.9))
 	g.set_color(1, Color(1.0, 0.25, 0.05, 0.0))
 	embers.color_ramp = g
-	floor_layer.add_child(embers)
+	if not Sfx.battery_saver:   # 60 floating sparks updated every frame; skipped in Battery Saver
+		floor_layer.add_child(embers)
+	else:
+		embers.free()
 
 	platform = Node2D.new()
 	platform.name = "Platform"

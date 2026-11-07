@@ -93,13 +93,14 @@ func music(key: String) -> void:
 	_music_a = _music_b
 	_music_b = old
 	_music_tween = create_tween().set_parallel(true)
-	if _music_b.playing:
+	var fading := _music_b.playing
+	if fading:
 		_music_tween.tween_property(_music_b, "volume_db", -40.0, 0.6)
 		_music_tween.chain().tween_callback(_music_b.stop)
-	if key == "" or not music_on:
-		return
-	var st: AudioStream = _streams.get("m_" + key)
+	var st: AudioStream = _streams.get("m_" + key) if key != "" and music_on else null
 	if st == null:
+		if not fading:
+			_music_tween.kill()   # nothing to fade (avoids an empty-tween error when music is off)
 		return
 	_music_a.stream = st
 	_music_a.volume_db = -40.0

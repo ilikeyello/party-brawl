@@ -288,7 +288,7 @@ func _process(delta: float) -> void:
 
 	if is_eliminated:
 		trail.emitting = false
-		shadow.queue_redraw()
+		_redraw_shadow_if_changed()
 		return
 
 	var speed := v.length()
@@ -303,7 +303,9 @@ func _process(delta: float) -> void:
 	var depth_scale: float = lerpf(0.92, 1.06, clampf(position.y / 720.0, 0.0, 1.0))
 	var squash := Vector2(1.12, 0.9) if is_dashing else Vector2.ONE
 	visual.scale = squash * depth_scale
-	shadow.scale = Vector2.ONE * depth_scale
+	# The hop is done by moving/scaling the drawings (cheap) instead of re-drawing them every frame.
+	visual.position = Vector2(0, -_bob * visual.scale.y)
+	shadow.scale = Vector2.ONE * depth_scale * (1.0 - _bob * 0.03)
 
 	if freeze_timer > 0.0:
 		visual.modulate = Color(0.65, 0.9, 1.4)
@@ -321,8 +323,27 @@ func _process(delta: float) -> void:
 		bomb_label.label_settings.font_color = Color("#FF4D6D") if urgent else Color("#FFD60A")
 		bomb_label.label_settings.font_size = 40 if urgent else 28
 		bomb_label.pivot_offset = bomb_label.size * 0.5
-	visual.queue_redraw()
-	shadow.queue_redraw()
+	# Only re-draw the ball when something it shows changed. Effects that animate (bomb, shield,
+	# boost, stun, no-tag-back ring) still re-draw every frame while they're on.
+	var animating: bool = has_bomb or tagback_timer > 0.0 or shield_timer > 0.0 or boost_timer > 0.0 or stun_timer > 0.0
+	var key: Array = [int(roundf(facing.angle() / 0.06)), facing.length() > 0.1, freeze_timer > 0.0, player_color]
+	if animating or _was_animating or key != _body_key:
+		_body_key = key
+		visual.queue_redraw()
+	_was_animating = animating
+	_redraw_shadow_if_changed()
+
+
+var _body_key: Array = []
+var _was_animating: bool = true
+var _shadow_key: Array = []
+
+
+func _redraw_shadow_if_changed() -> void:
+	var k: Array = [_scorched, is_eliminated]
+	if k != _shadow_key:
+		_shadow_key = k
+		shadow.queue_redraw()
 
 
 func _draw_shadow() -> void:
@@ -332,12 +353,11 @@ func _draw_shadow() -> void:
 		return
 	if is_eliminated:
 		return
-	var shrink: float = 1.0 - _bob * 0.03
-	shadow.draw_colored_polygon(UI.ellipse_points(Vector2(0, 5), 23.0 * shrink, 9.0 * shrink, 24), Color(0, 0, 0, 0.38))
+	shadow.draw_colored_polygon(UI.ellipse_points(Vector2(0, 5), 23.0, 9.0, 24), Color(0, 0, 0, 0.38))
 
 
 func _draw_body() -> void:
-	var c := Vector2(0, -LIFT - _bob)
+	var c := Vector2(0, -LIFT)
 	if tagback_timer > 0.0:
 		# Dashed ring = "can't get the bomb back yet"
 		for i in 12:
@@ -410,6 +430,7 @@ func _play_elimination(style: String) -> void:
 	if style == "explode":
 		visual.visible = false
 		_scorched = true
+		shadow.scale = Vector2.ONE * lerpf(0.92, 1.06, clampf(position.y / 720.0, 0.0, 1.0))
 		shadow.queue_redraw()
 		spawn_burst(Color("#FFE066"), 40, 460.0, 12.0, 0.6)
 		spawn_burst(Color("#FB5607"), 34, 320.0, 16.0, 0.8)

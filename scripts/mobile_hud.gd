@@ -136,7 +136,25 @@ func _process(delta: float) -> void:
 		timer_label.pivot_offset = timer_label.size * 0.5
 	if badges_box != null:
 		badges_box.position = Vector2(s.x - badges_box.size.x - 12.0 - ins.z, 10.0 + ins.y)
-	pad.queue_redraw()
+	# Only redraw the controls when something about them changed (was every frame).
+	var key: Array = [GameManager.touch_mode, free_aim, hold_mode, dpad_mode, _joy_touch, _knob.round(), _joy_origin.round(),
+		_btn_touch, _dpad_touch, (get_move_vector() * 20.0).round(), free_active, free_pos.round(), free_start.round(),
+		snappedf(cooldown_ratio, 0.01), _is_action_down(), action_label, action_color, pc_key, key_hint, hold_hint,
+		s, ins, _ring_pulse_step()]
+	if key != _pad_key:
+		_pad_key = key
+		pad.queue_redraw()
+
+
+var _pad_key: Array = []
+
+
+## The "ready" ring on the action button gently pulses (in steps, so it doesn't force a redraw
+## every single frame). Battery Saver keeps it steady.
+func _ring_pulse_step() -> int:
+	if Sfx.battery_saver or cooldown_ratio > 0.0 or not GameManager.touch_mode:
+		return 0
+	return int(roundf((0.5 + 0.5 * sin(_t * 6.0)) * 6.0))
 
 
 # ---------------------------------------------------------------- public API
@@ -489,7 +507,7 @@ func _draw_action_button() -> void:
 	if 1.0 - cooldown_ratio > 0.01:
 		var ring_col := Color("#FEE440") if btn_ready else Color(1, 1, 1, 0.7)
 		if btn_ready:
-			ring_col.a = 0.6 + 0.4 * sin(_t * 6.0)
+			ring_col.a = 0.2 + 0.8 * float(_ring_pulse_step()) / 6.0 if not Sfx.battery_saver else 0.85
 		pad.draw_arc(top, r + 5.0, -PI * 0.5, -PI * 0.5 + TAU * (1.0 - cooldown_ratio), 48, ring_col, 4.0, true)
 	var font: Font = UI.title_font()
 	var text_pos := top + Vector2(-r, 7)

@@ -359,8 +359,7 @@ func _process(delta: float) -> void:
 		want_fps = 30
 	elif Sfx.battery_saver:
 		want_fps = 30
-	if Engine.max_fps != want_fps:
-		Engine.max_fps = want_fps
+	_apply_frame_cap(want_fps)
 	if rotate_hint != null:
 		var vs := get_viewport().get_visible_rect().size
 		rotate_hint.visible = GameManager.touch_mode and vs.y > vs.x * 1.15
@@ -373,7 +372,35 @@ func _process(delta: float) -> void:
 		lobby_title.pivot_offset = lobby_title.size * 0.5
 		lobby_title.scale = Vector2.ONE * (1.0 + 0.025 * sin(_t * 3.0))
 		lobby_title.rotation = 0.015 * sin(_t * 1.7)
-		lobby_title.label_settings.shadow_color = GameManager.COLORS[int(_t * 1.5) % GameManager.COLORS.size()]
+		var sc: Color = GameManager.COLORS[int(_t * 1.5) % GameManager.COLORS.size()]
+		if lobby_title.label_settings.shadow_color != sc:
+			lobby_title.label_settings.shadow_color = sc   # setting it re-draws the label, so only when it changes
+
+
+var _web_fps: int = -1
+var _web_dpr: float = -1.0
+
+
+## Frame-rate cap + render sharpness.
+## IMPORTANT: on the web build Engine.max_fps must stay 0. Our web build has no threads, and there
+## Godot "waits" for the next frame by spinning the CPU at 100% (a browser can't sleep), so a
+## 30 fps cap kept the phone's CPU maxed out and hot. Instead the web page (export_presets.cfg,
+## head_include) skips browser frames: window.__pbFps. window.__pbDprCap sets the sharpness.
+func _apply_frame_cap(fps: int) -> void:
+	if not OS.has_feature("web"):
+		if Engine.max_fps != fps:
+			Engine.max_fps = fps
+		return
+	if Engine.max_fps != 0:
+		Engine.max_fps = 0
+	if fps != _web_fps:
+		_web_fps = fps
+		JavaScriptBridge.eval("window.__pbFps=%d" % fps)
+	if GameManager.is_touch_device():
+		var dpr: float = 1.25 if Sfx.battery_saver else 1.5
+		if dpr != _web_dpr:
+			_web_dpr = dpr
+			JavaScriptBridge.eval("window.__pbDprCap=%s" % str(dpr))
 
 
 func _unhandled_input(event: InputEvent) -> void:
