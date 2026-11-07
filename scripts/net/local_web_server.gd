@@ -47,6 +47,8 @@ func _respond(conn: StreamPeerTCP, req: String) -> void:
 	if path.contains(".."):
 		path = "/index.html"
 	var file := root_dir.path_join(path.substr(1))
+	if path == "/game.service.worker.js" and FileAccess.file_exists(root_dir.path_join("../sw.js")):
+		file = root_dir.path_join("../sw.js")   # same "network first" worker the real server sends
 	if not FileAccess.file_exists(file):
 		_send(conn, 404, "text/plain", "Not found".to_utf8_buffer())
 		return

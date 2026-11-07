@@ -54,6 +54,11 @@ const server = http.createServer((req, res) => {
     res.end();
     return;
   }
+  // Our own "network first" service worker (server/sw.js) instead of the one Godot exports,
+  // so a normal refresh always gets the newest build (no need to clear website data).
+  if (urlPath === "/game.service.worker.js") {
+    file = path.join(__dirname, "sw.js");
+  }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) {
       res.writeHead(404, { "Content-Type": "text/plain" });
