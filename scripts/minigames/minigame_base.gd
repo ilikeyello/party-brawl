@@ -32,6 +32,17 @@ var camera_zoom: float = 1.0
 var arena_rect: Rect2 = Rect2(160, 104, 960, 512)
 var _pc_cam_pos = null
 var _cam_key: Array = []
+## Phones: zoom in and follow your own player while the game is running (games where you run
+## around a big field). Full view during the intro, once you're out, and at the end.
+var follow_cam: bool = false
+const FOLLOW_SHOW := 0.8          # how much of the arena's height fits in the free area while following
+const FOLLOW_MARGIN := 30.0       # world units of floor beyond the arena edge the camera may show
+var _free_area: Rect2                  # canvas area not covered by controls / top bar (touch only)
+var _fit_zoom: float = 1.0        # zoom + position that show the whole arena
+var _fit_pos: Vector2 = Vector2.ZERO
+var _cam_snapped := false
+var _me_last := Vector2.INF
+var _me_vel := Vector2.ZERO
 var key_hint: String = "WASD / ARROWS: move     SPACE / SHIFT / CLICK: dash"
 var _auto_dir: Vector2 = Vector2.RIGHT
 var _auto_t: float = 0.0
@@ -447,6 +458,7 @@ func _apply_camera_zoom() -> void:
 		return
 	var z: float = camera_zoom / maxf(GameManager.ui_scale, 0.01)
 	if not GameManager.touch_mode or hud == null:
+		_cam_snapped = false
 		if _pc_cam_pos != null:
 			camera.position = _pc_cam_pos
 			_pc_cam_pos = null
@@ -463,9 +475,55 @@ func _apply_camera_zoom() -> void:
 	var need: Vector2 = arena_rect.size + Vector2(24, 24)
 	if free.size.x > 50.0 and free.size.y > 50.0:
 		z = minf(z, minf(free.size.x / need.x, free.size.y / need.y))
-	camera.zoom = Vector2(z, z)
+	_free_area = free
+	_fit_zoom = z
 	# Put the arena's middle in the middle of the free area.
-	camera.position = arena_rect.get_center() - (free.get_center() - vs * 0.5) / z
+	_fit_pos = arena_rect.get_center() - (free.get_center() - vs * 0.5) / z
+	if not follow_cam or not _cam_snapped:
+		_cam_snapped = true
+		camera.zoom = Vector2(z, z)
+		camera.position = _fit_pos
+
+
+## Zoom + camera position that keep `p` in the middle of the free area, without showing (in the
+## free area) more than a little floor beyond the arena's edges.
+func _follow_target(p: Vector2) -> Array:
+	var vs: Vector2 = get_viewport_rect().size
+	var z: float = clampf(_free_area.size.y / maxf(arena_rect.size.y * FOLLOW_SHOW, 1.0), _fit_zoom, _fit_zoom * 2.4)
+	var f0: Vector2 = (_free_area.position - vs * 0.5) / z     # free area, relative to the camera, in world units
+	var f1: Vector2 = (_free_area.end - vs * 0.5) / z
+	var a: Rect2 = arena_rect.grow(FOLLOW_MARGIN)
+	var cam: Vector2 = p - (f0 + f1) * 0.5
+	var lo: Vector2 = a.position - f0
+	var hi: Vector2 = a.end - f1
+	cam.x = (lo.x + hi.x) * 0.5 if lo.x > hi.x else clampf(cam.x, lo.x, hi.x)
+	cam.y = (lo.y + hi.y) * 0.5 if lo.y > hi.y else clampf(cam.y, lo.y, hi.y)
+	return [z, cam]
+
+
+func _update_follow(delta: float) -> void:
+	var tz: float = _fit_zoom
+	var tp: Vector2 = _fit_pos
+	var me = players.get(GameManager.my_id())
+	if state == "running" and me != null and not me.is_eliminated:
+		var mp: Vector2 = me.position
+		# Look a little ahead in the direction you're moving (smoothed), so you see what's coming.
+		if _me_last != Vector2.INF and delta > 0.0:
+			var v: Vector2 = (mp - _me_last) / delta
+			if v.length() > 1500.0:
+				v = Vector2.ZERO      # teleport (warp tunnel)
+			_me_vel = _me_vel.lerp(v, 1.0 - exp(-delta * 4.0))
+		_me_last = mp
+		var r: Array = _follow_target(mp + (_me_vel * 0.3).limit_length(110.0))
+		tz = r[0]
+		tp = r[1]
+	else:
+		_me_last = Vector2.INF
+		_me_vel = Vector2.ZERO
+	var k: float = 1.0 - exp(-delta * 5.0)
+	var z: float = lerpf(camera.zoom.x, tz, k)
+	camera.zoom = Vector2(z, z)
+	camera.position = camera.position.lerp(tp, k)
 
 
 func add_shake(amount: float) -> void:
@@ -480,6 +538,8 @@ func _update_camera(delta: float) -> void:
 	if ck != _cam_key:
 		_cam_key = ck
 		_apply_camera_zoom()
+	if follow_cam and GameManager.touch_mode and hud != null and _cam_snapped:
+		_update_follow(delta)
 	if _shake > 0.0:
 		_shake = maxf(_shake - delta * 40.0, 0.0)
 		camera.offset = Vector2(randf_range(-_shake, _shake), randf_range(-_shake, _shake))

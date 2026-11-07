@@ -58,6 +58,7 @@ func _init() -> void:
 	elim_style = "fall"
 	camera_center = Vector2(640, 372)
 	camera_zoom = 0.9
+	follow_cam = true   # phones: zoom in + follow your player
 
 
 func _ready() -> void:

@@ -68,6 +68,7 @@ var _board_mesh: ArrayMesh
 
 func _init() -> void:
 	arena_rect = Rect2(ORIGIN, Vector2(COLS * TILE, ROWS * TILE + BOARD_DEPTH))
+	follow_cam = true   # phones: zoom in + follow your player
 	game_id = "tile_painter"
 	game_title = "TILE PAINTER"
 	instruction = "PAINT THE MOST TILES!"

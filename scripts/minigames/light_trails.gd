@@ -52,6 +52,7 @@ func _init() -> void:
 	elim_style = "explode"
 	camera_center = Vector2(640, 372)
 	camera_zoom = 0.9
+	follow_cam = true   # phones: zoom in + follow your player
 	key_hint = "WASD / ARROWS: steer     SPACE / SHIFT / CLICK: boost"
 
 
