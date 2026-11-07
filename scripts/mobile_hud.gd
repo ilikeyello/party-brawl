@@ -6,9 +6,14 @@ extends CanvasLayer
 ## - Top bar: minigame name, 1-line instruction, big timer, live player badges
 
 const UI := preload("res://scripts/ui_kit.gd")
-const JOY_RADIUS := 75.0
-const KNOB_RADIUS := 32.0
-const BUTTON_SIZE := 110.0
+## Control sizes. On phones the whole UI is scaled up (GameManager.ui_scale up to 1.6) so menus are
+## readable, which made the in-game controls huge and they covered the game. So the controls are
+## shrunk back down a bit on phones (see _update_sizes) and tucked closer into the corners.
+var JOY_RADIUS := 75.0
+var KNOB_RADIUS := 32.0
+var BUTTON_SIZE := 110.0
+var _ctl_k := 1.0          # 1.0 on PC/tablets, ~0.75 on phones
+var _corner := Vector2(150.0, 140.0)   # control centres: this far in from the bottom corners
 const DEADZONE := 0.12
 const FULL_AT := 0.6          # stick reaches full speed at 60% of the radius
 const SLING_FULL := 170.0     # sumo slingshot: pull this far for full power
@@ -30,8 +35,8 @@ var _joy_origin: Vector2 = Vector2.ZERO
 var free_aim: bool = false
 ## D-pad mode (Light Trails): a 4-way pad instead of the joystick (turns are 90 degrees).
 var dpad_mode: bool = false
-const DPAD_BTN := 62.0        # size of each arrow button
-const DPAD_GAP := 66.0        # centre of the pad -> centre of each arrow
+var DPAD_BTN := 62.0          # size of each arrow button
+var DPAD_GAP := 66.0          # centre of the pad -> centre of each arrow
 var _dpad_touch: int = -1
 var _dpad_dir: Vector2 = Vector2.ZERO
 ## Swipe mode (Light Trails): swipe anywhere in the direction you want to go. The last swipe
@@ -137,6 +142,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_update_sizes()
 	var s := _vp_size()
 	var ins: Vector4 = GameManager.safe_insets
 	if top_left != null:
@@ -158,6 +164,44 @@ func _process(delta: float) -> void:
 
 
 var _pad_key: Array = []
+
+
+func _update_sizes() -> void:
+	var k: float = 1.0
+	if GameManager.touch_mode:
+		k = clampf(1.2 / maxf(GameManager.ui_scale, 0.01), 0.72, 1.0)
+	if _sized and is_equal_approx(k, _ctl_k):
+		return
+	_sized = true
+	_ctl_k = k
+	JOY_RADIUS = 75.0 * k
+	KNOB_RADIUS = 32.0 * k
+	BUTTON_SIZE = 110.0 * k
+	DPAD_BTN = 62.0 * k
+	DPAD_GAP = 66.0 * k
+	_corner = Vector2(150.0, 140.0) * k
+	_pad_key = []
+
+
+var _sized := false
+
+
+## How much room the controls take at each side of the screen (canvas units, not counting the
+## notch insets). The minigame camera keeps the playing area out of these strips on touch screens.
+func side_zone() -> float:
+	if not GameManager.touch_mode:
+		return 0.0
+	_update_sizes()
+	var left: float = _corner.x + JOY_RADIUS + 10.0
+	var right: float = _corner.x + BUTTON_SIZE * 0.5 + 12.0
+	if badges_box != null:
+		right = maxf(right, badges_box.size.x + 12.0 + 8.0)   # the score list in the top-right corner
+	return maxf(left, right)
+
+
+## Height of the top bar (title / timer / scores).
+func top_zone() -> float:
+	return 62.0
 
 
 ## The "ready" ring on the action button gently pulses (in steps, so it doesn't force a redraw
@@ -411,7 +455,7 @@ func _set_knob(p: Vector2) -> void:
 
 func dpad_center() -> Vector2:
 	var s := _vp_size()
-	return Vector2(160.0 + GameManager.safe_insets.x, s.y - 160.0 - GameManager.safe_insets.w)
+	return Vector2(_corner.x + 10.0 * _ctl_k + GameManager.safe_insets.x, s.y - _corner.y - 20.0 * _ctl_k - GameManager.safe_insets.w)
 
 
 ## The whole left part of the screen counts, so a thumb a bit off the pad still works.
@@ -477,12 +521,12 @@ func joy_center() -> Vector2:
 	if _joy_touch != -1:
 		return _joy_origin
 	var s := _vp_size()
-	return Vector2(150.0 + GameManager.safe_insets.x, s.y - 140.0 - GameManager.safe_insets.w)
+	return Vector2(_corner.x + GameManager.safe_insets.x, s.y - _corner.y - GameManager.safe_insets.w)
 
 
 func btn_center() -> Vector2:
 	var s := _vp_size()
-	return Vector2(s.x - 150.0 - GameManager.safe_insets.z, s.y - 140.0 - GameManager.safe_insets.w)
+	return Vector2(s.x - _corner.x - GameManager.safe_insets.z, s.y - _corner.y - GameManager.safe_insets.w)
 
 
 # ---------------------------------------------------------------- drawing
@@ -538,11 +582,14 @@ func _draw_action_button() -> void:
 	var down := _is_action_down()
 	var btn_ready := cooldown_ratio <= 0.0
 	var col := action_color if btn_ready else Color("#8c6d4a")
-	var depth := 8.0
+	if GameManager.touch_mode and not down:
+		col.a = 0.62   # see-through so the game shows behind it
+	var depth := 8.0 * _ctl_k
 	var lift := 2.0 if down else depth
 	var top := bc + Vector2(0, depth - lift)
-	pad.draw_circle(bc + Vector2(0, depth + 4), r, Color(0, 0, 0, 0.3))
-	pad.draw_circle(bc + Vector2(0, depth), r, col.darkened(0.5))
+	var see_through: bool = GameManager.touch_mode and not down
+	pad.draw_circle(bc + Vector2(0, depth + 4), r, Color(0, 0, 0, 0.15 if see_through else 0.3))
+	pad.draw_circle(bc + Vector2(0, depth), r, Color(col.darkened(0.5), 0.3 if see_through else 1.0))
 	pad.draw_circle(top, r, col)
 	pad.draw_circle(top + Vector2(-r * 0.3, -r * 0.35), r * 0.28, Color(1, 1, 1, 0.3))
 	if cooldown_ratio > 0.01:

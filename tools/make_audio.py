@@ -187,6 +187,15 @@ def bell(midi, dur, vol=0.35):
     return x * env_exp(len(t), 0.35) * vol
 
 
+def soft_bell(midi, dur, vol=0.35):
+    """Warmer bell (v2.1): gentler shimmer than bell() plus a soft sine body, so it isn't shrill."""
+    t = t_axis(dur)
+    f = note_hz(midi)
+    mod = np.sin(2 * np.pi * f * 2.0 * t) * 0.9 * np.exp(-t / 0.15)
+    x = np.sin(2 * np.pi * f * t + mod) * 0.7 + np.sin(2 * np.pi * f * 0.5 * t) * 0.3
+    return lp(x * env_exp(len(t), 0.3), 2600) * vol
+
+
 # ------------------------------------------------------------------ tracker
 class Song:
     def __init__(self, bpm, bars, steps_per_bar=16):
@@ -445,6 +454,7 @@ def fanfare():
     notes = [(0, 0, 72, 2), (0, 2, 72, 2), (0, 4, 72, 2), (0, 6, 76, 6), (0, 12, 74, 2), (0, 14, 76, 2),
              (1, 0, 79, 12)]
     for bar, st, n, ln in notes:
+        n -= 5   # v2.1: whole jingle a bit lower (was too high-pitched)
         for k in (0, 4, 7):
             s.add(lead(n + k - 12 if k else n, s.step * ln, "pulse", 0.01 if ln > 6 else 0, 0.16), bar, st)
     s.add(kick(), 0, 0)
@@ -455,9 +465,10 @@ def fanfare():
     t = t_axis(1.6)
     cym = hp(noise(1.6), 5000) * env_exp(len(t), 0.5) * 0.35
     s.add(cym, 1, 0)
-    for n in (60, 64, 67, 72):
+    for n in (55, 59, 62, 67):
         s.add(pad([n], s.step * 16, 0.5), 1, 0)
     out = s.buf[: int((s.length + 0.8) * SR)]
+    out = lp(out, 3200)   # v2.1: take the edge off the pulse lead
     return normalize(soft_clip(out, 1.2), 0.8)
 
 
@@ -468,8 +479,8 @@ def sfx():
     t = t_axis(0.07)
     fx["click"] = osc("square", np.linspace(900, 1300, len(t)), 0.07) * env_exp(len(t), 0.02) * 0.5
     x = np.zeros(int(0.35 * SR))
-    mix_at(x, bell(84, 0.3, 0.5), 0.0)
-    mix_at(x, bell(91, 0.3, 0.5), 0.09)
+    mix_at(x, soft_bell(72, 0.3, 0.5), 0.0)     # v2.1: was bell(84) + bell(91), too high
+    mix_at(x, soft_bell(79, 0.3, 0.5), 0.09)
     fx["ready"] = x
     t = t_axis(0.16)
     fx["count"] = lp(osc("square", 660, 0.16), 3000) * env_adsr(len(t), 0.002, 0.03, 0.6, 0.05) * 0.55
@@ -539,7 +550,10 @@ def sfx():
     t = t_axis(0.6)
     fx["eraser"] = lp(osc("saw", 110 + 20 * np.sin(2 * np.pi * 11 * t), 0.6), 1200) * env_adsr(len(t), 0.03, 0.1, 0.8, 0.2) * 0.6
     # results
-    fx["ding"] = bell(91, 0.45, 0.5)
+    x = np.zeros(int(0.6 * SR))                   # v2.1: was bell(91), too high
+    mix_at(x, soft_bell(72, 0.5, 0.45), 0.0)
+    mix_at(x, soft_bell(79, 0.5, 0.4), 0.0)
+    fx["ding"] = x
     x = np.zeros(int(1.2 * SR))
     for i, n in enumerate((67, 66, 65, 64)):
         mix_at(x, lead(n, 0.32 if i < 3 else 0.7, "saw", 0.012 if i == 3 else 0, 0.3), i * 0.3)
@@ -591,9 +605,19 @@ def main_new():
             save("sfx_" + name, normalize(x, 0.85))
 
 
+def main_soft():
+    """v2.1: only the sounds that were made lower (ready, ding, fanfare)."""
+    save("fanfare", fanfare())
+    for name, x in sfx().items():
+        if name in ("ready", "ding"):
+            save("sfx_" + name, normalize(x, 0.85))
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "new":
         main_new()
+    elif len(sys.argv) > 1 and sys.argv[1] == "soft":
+        main_soft()
     else:
         main()

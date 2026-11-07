@@ -49,6 +49,11 @@ func _init() -> void:
 
 func _ready() -> void:
 	super()
+	# Playing field = the row of balloons (biggest size) + players and pumps underneath.
+	var n: int = maxi(player_order.size(), 1)
+	var half_w: float = float(n - 1) * SPACING * 0.5 + MAX_R + 20.0
+	arena_rect = Rect2(640.0 - half_w, KNOT_Y - MAX_R * 2.0 - 50.0, half_w * 2.0, PLAYER_Y - (KNOT_Y - MAX_R * 2.0 - 50.0) + 50.0)
+	_cam_key = []   # re-fit the camera with the real size
 	# Line everyone up in a row (by join order, so there are never gaps).
 	for i in player_order.size():
 		var id: int = player_order[i]

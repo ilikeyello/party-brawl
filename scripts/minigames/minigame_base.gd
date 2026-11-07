@@ -8,6 +8,7 @@ const HUD_SCENE := preload("res://scenes/ui/mobile_hud.tscn")
 const UI := preload("res://scripts/ui_kit.gd")
 const STATES := ["intro", "running", "done"]
 const INTRO_TIME := 3.0          # the 3-2-1 countdown after everyone is ready
+const CLEAR_TIME := 0.6          # instructions fade away first, THEN the 3-2-1 starts
 const AFK_WAIT := 15.0           # once someone is ready, others get this long
 const MAX_READY_WAIT := 45.0     # absolute cap on the ready screen
 const END_DELAY := 1.8
@@ -26,6 +27,11 @@ var knock_strength: float = 350.0
 var elim_style: String = "fall"
 var camera_center: Vector2 = Vector2(640, 360)
 var camera_zoom: float = 1.0
+## The playing field in world units. On touch screens the camera zooms out just enough to keep
+## this whole rect clear of the on-screen controls (left/right) and the top bar.
+var arena_rect: Rect2 = Rect2(160, 104, 960, 512)
+var _pc_cam_pos = null
+var _cam_key: Array = []
 var key_hint: String = "WASD / ARROWS: move     SPACE / SHIFT / CLICK: dash"
 var _auto_dir: Vector2 = Vector2.RIGHT
 var _auto_t: float = 0.0
@@ -148,7 +154,7 @@ func _server_tick(delta: float) -> void:
 			ready_wait = maxf(ready_wait - delta, 0.0)
 		if _all_humans_ready() or ready_wait == 0.0 or _ready_total >= MAX_READY_WAIT:
 			intro_phase = "count"
-			intro_left = INTRO_TIME
+			intro_left = INTRO_TIME + CLEAR_TIME
 	elif state == "intro":
 		intro_left -= delta
 		if intro_left <= 0.0:
@@ -437,9 +443,29 @@ func _badge_entries() -> Array:
 
 
 func _apply_camera_zoom() -> void:
-	if camera != null:
-		var z: float = camera_zoom / maxf(GameManager.ui_scale, 0.01)
+	if camera == null:
+		return
+	var z: float = camera_zoom / maxf(GameManager.ui_scale, 0.01)
+	if not GameManager.touch_mode or hud == null:
+		if _pc_cam_pos != null:
+			camera.position = _pc_cam_pos
+			_pc_cam_pos = null
 		camera.zoom = Vector2(z, z)
+		return
+	# Touch screen: free area = screen minus the notch insets, the control strips and the top bar.
+	if _pc_cam_pos == null:
+		_pc_cam_pos = camera.position
+	var vs: Vector2 = get_viewport_rect().size
+	var ins: Vector4 = GameManager.safe_insets
+	var side: float = hud.side_zone()
+	var lx: float = maxf(ins.x, ins.z) + side      # same on both sides so the game stays centred
+	var free := Rect2(Vector2(lx, ins.y + hud.top_zone()), Vector2(vs.x - lx * 2.0, vs.y - ins.y - hud.top_zone() - ins.w - 6.0))
+	var need: Vector2 = arena_rect.size + Vector2(24, 24)
+	if free.size.x > 50.0 and free.size.y > 50.0:
+		z = minf(z, minf(free.size.x / need.x, free.size.y / need.y))
+	camera.zoom = Vector2(z, z)
+	# Put the arena's middle in the middle of the free area.
+	camera.position = arena_rect.get_center() - (free.get_center() - vs * 0.5) / z
 
 
 func add_shake(amount: float) -> void:
@@ -449,6 +475,11 @@ func add_shake(amount: float) -> void:
 func _update_camera(delta: float) -> void:
 	if camera == null:
 		return
+	# Re-fit when anything that changes the free space changes (rotation, notch insets, touch/PC).
+	var ck: Array = [GameManager.touch_mode, GameManager.ui_scale, GameManager.safe_insets, get_viewport_rect().size, hud != null]
+	if ck != _cam_key:
+		_cam_key = ck
+		_apply_camera_zoom()
 	if _shake > 0.0:
 		_shake = maxf(_shake - delta * 40.0, 0.0)
 		camera.offset = Vector2(randf_range(-_shake, _shake), randf_range(-_shake, _shake))

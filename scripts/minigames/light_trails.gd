@@ -18,7 +18,7 @@ const SPEED_RAMP := 40.0
 const BOOST_MULT := 1.8
 const BOOST_TIME := 0.5
 const BOOST_CD := 3.0
-const DEREZ_TIME := 1.2
+const DEREZ_TIME := 0.5         # a crashed rider's walls fade out over this long, then are gone
 const RESERVED := 128
 const DIRS := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)]   # R D L U
 ## Pinwheel start: [cell, direction index] per slot.
@@ -41,6 +41,7 @@ var _prev := PackedByteArray()
 var _t := 0.0
 var _speed := SPEED_START
 var _was_boost := false
+var _fading: Dictionary = {}      # client: own value -> seconds of fade left (walls of crashed riders)
 
 
 func _init() -> void:
@@ -408,7 +409,18 @@ func client_process(delta: float) -> void:
 		if b and not _was_boost:
 			Sfx.play("dash", -2.0, 0.08)
 		_was_boost = b
-	if grid != _prev:
+	# Walls of a rider who just crashed fade out right away (the host removes them after DEREZ_TIME).
+	for id in player_order:
+		var p = players[id]
+		var own: int = int(p.slot) + 1
+		if p.is_eliminated and not _fading.has(own):
+			_fading[own] = DEREZ_TIME
+	var fading_now := false
+	for own in _fading:
+		if float(_fading[own]) > 0.0:
+			_fading[own] = maxf(float(_fading[own]) - delta, 0.0)
+			fading_now = true
+	if grid != _prev or fading_now:
 		_prev = grid.duplicate()
 		trails.queue_redraw()
 	heads_node.queue_redraw()
@@ -454,6 +466,8 @@ func _draw_trails() -> void:
 					continue
 				var col: Color = GameManager.COLORS[clampi(own - 1, 0, 4)]
 				col = Color(col, 0.22) if pass_i == 0 else col.lightened(0.15)
+				if _fading.has(own):
+					col.a *= float(_fading[own]) / DEREZ_TIME
 				var c := _center(Vector2i(x, y))
 				_quad(verts, cols, Rect2(c - Vector2(hw, hw), Vector2(w, w)), col)
 				# Joins to the right / down neighbour (left / up are drawn by that neighbour)
@@ -470,6 +484,8 @@ func _draw_trails() -> void:
 						continue
 					var c2 := _center(Vector2i(x, y))
 					var core := Color(1, 1, 1, 0.55)
+					if _fading.has(v2 & 7):
+						core.a *= float(_fading[v2 & 7]) / DEREZ_TIME
 					_quad(verts, cols, Rect2(c2 - Vector2(2, 2), Vector2(4, 4)), core)
 					if (v2 & _bit(0)) != 0 and x + 1 < COLS and (grid[y * COLS + x + 1] & RESERVED) == 0:
 						_quad(verts, cols, Rect2(c2 + Vector2(2, -2), Vector2(CELL - 4, 4)), core)

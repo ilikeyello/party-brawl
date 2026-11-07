@@ -1414,11 +1414,16 @@ func _show_intro(index: int, game_id: String) -> void:
 	v.add_child(_intro_ready_btn)
 	_intro_status = UI.make_label("", 20, Color("#c8c3ff"), 5, HORIZONTAL_ALIGNMENT_CENTER)
 	v.add_child(_intro_status)
-	_intro_count = UI.make_label("", 84, Color("#FF4D6D"), 18, HORIZONTAL_ALIGNMENT_CENTER)
-	_intro_count.custom_minimum_size = Vector2(0, 96)
+	# The big 3-2-1 sits on its own in the middle of the screen (not inside the instructions),
+	# so the instructions can fade away completely before the countdown starts.
+	_intro_count = UI.make_label("", 120, Color("#FF4D6D"), 22, HORIZONTAL_ALIGNMENT_CENTER)
 	_intro_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_intro_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_intro_count.visible = false
-	v.add_child(_intro_count)
+	root.add_child(_intro_count)
+	_full_rect(_intro_count)
+	_intro_panel = center
+	_intro_cleared = false
 	_intro_root = root
 	_intro_dim = dim
 	_intro_done = false
@@ -1434,6 +1439,8 @@ var _intro_chips: HBoxContainer
 var _intro_ready_btn: Button
 var _intro_status: Label
 var _intro_count: Label
+var _intro_panel: Control
+var _intro_cleared := false
 var _intro_done := false
 var _intro_last_num := -1
 var _i_pressed_ready := false
@@ -1529,22 +1536,32 @@ func _update_intro() -> void:
 	else:
 		_intro_ready_btn.visible = false
 		_intro_status.text = ""
-		_intro_count.visible = true
+		if not _intro_cleared:
+			# Everyone is ready: fade the instructions away first (the game shows through),
+			# and only then start 3-2-1 (the host waits CLEAR_TIME before counting).
+			_intro_cleared = true
+			var ftw := _intro_root.create_tween().set_parallel(true)
+			ftw.tween_property(_intro_panel, "modulate:a", 0.0, 0.35)
+			ftw.tween_property(_intro_dim, "color:a", 0.35, 0.35)
+			ftw.chain().tween_callback(_intro_panel.hide)
 		if g.state == "intro":
-			var n: int = maxi(ceili(g.intro_left), 1)
-			if n != _intro_last_num:
-				_intro_last_num = n
-				_pop_count(_intro_count, str(n), Color("#FF4D6D"))
-				Sfx.play("count")
+			if g.intro_left <= g.INTRO_TIME:
+				var n: int = maxi(ceili(g.intro_left), 1)
+				if n != _intro_last_num:
+					_intro_last_num = n
+					_intro_count.visible = true
+					_pop_count(_intro_count, str(n), Color("#FF4D6D"))
+					Sfx.play("count")
 		else:
 			_intro_done = true
+			_intro_count.visible = true
 			_pop_count(_intro_count, "GO!", Color("#2ECC71"))
 			Sfx.play("go")
 			var root := _intro_root
 			var tw := root.create_tween()
-			tw.tween_interval(0.35)
 			tw.tween_property(_intro_dim, "color:a", 0.0, 0.2)
-			tw.tween_property(root, "modulate:a", 0.0, 0.4)
+			tw.tween_interval(0.25)
+			tw.tween_property(root, "modulate:a", 0.0, 0.3)
 			tw.tween_callback(root.queue_free)
 
 

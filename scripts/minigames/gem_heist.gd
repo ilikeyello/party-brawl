@@ -120,6 +120,10 @@ func build_arena() -> void:
 	else:
 		mid = CENTER
 		arena_poly = PackedVector2Array([ARENA.position, Vector2(ARENA.end.x, ARENA.position.y), ARENA.end, Vector2(ARENA.position.x, ARENA.end.y)])
+	var bounds := Rect2(arena_poly[0], Vector2.ZERO)
+	for pt in arena_poly:
+		bounds = bounds.expand(pt)
+	arena_rect = bounds.grow(14.0)   # walls are drawn just outside the field
 	for k in arena_poly.size():
 		var a: Vector2 = arena_poly[k]
 		var b: Vector2 = arena_poly[(k + 1) % arena_poly.size()]

@@ -70,6 +70,7 @@ func _init() -> void:
 	knock_strength = 550.0
 	elim_style = "fall"
 	camera_center = CENTER
+	arena_rect = Rect2(CENTER.x - START_RADIUS, CENTER.y - START_RADIUS, START_RADIUS * 2.0, START_RADIUS * 2.0 + PLATFORM_DEPTH)
 	key_hint = "MOUSE: point the way to slide (further = harder)     CLICK / SPACE: lock in     A/D turn  W/S power"
 
 
